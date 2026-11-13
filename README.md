@@ -16,54 +16,7 @@ Ante una caída total o sobrecarga crítica en la región primaria, el borde de 
 
 ---
 
-## 2. Diagrama de Arquitectura
-
-```mermaid
-flowchart TD
-    subgraph EdgeTier ["Capa de Borde Global (Anycast / DNS)"]
-        Users["Clientes / Tráfico Web / Locust"] --> CF["AWS CloudFront (Origin Group Multi-Region)"]
-        CF --> R53["Route 53 Failover DNS (Health Check cada 10s)"]
-    end
-
-    subgraph RegionPrimary ["Región Primaria: us-east-1 (Activa - Tráfico Productivo)"]
-        ALB1["Application Load Balancer (us-east-1)"]
-        ASG1["Auto Scaling Group (2-4 Instancias t3.micro)\nAPI FastAPI Contenerizada"]
-        RDS1[("RDS MySQL 8.0 Multi-AZ\nEscritor Primario")]
-        DDB1[("DynamoDB Table\nuser_sessions (Streams ON)")]
-        S31["S3 Source Bucket\nVersionado Habilitado"]
-
-        ALB1 --> ASG1
-        ASG1 --> RDS1
-        ASG1 --> DDB1
-        ASG1 --> S31
-    end
-
-    subgraph RegionSecondary ["Región Secundaria: us-west-2 (Warm Standby - desired=0)"]
-        ALB2["Application Load Balancer (us-west-2 - Activo)"]
-        ASG2["Auto Scaling Group (desired=0 -> escala a 2 en Failover)\nAPI FastAPI"]
-        RDS2[("RDS MySQL Read Replica\nReplicación Asíncrona")]
-        DDB2[("DynamoDB Replica\nReplicación Activa-Activa")]
-        S32["S3 Replica Bucket\nDestino de CRR"]
-
-        ALB2 --> ASG2
-        ASG2 --> RDS2
-        ASG2 --> DDB2
-        ASG2 --> S32
-    end
-
-    R53 -- "Enrutamiento Normal (PRIMARY)" --> ALB1
-    R53 -. "Conmutación por Error (SECONDARY)" .-> ALB2
-    CF -- "Origin Failover (HTTP 500/502/503/504)" -.-> ALB2
-
-    %% Canales de Sincronización de Datos
-    RDS1 -- "Replicación Asíncrona Cross-Region (binlogs)" --> RDS2
-    DDB1 <== "DynamoDB Global Tables (Bidireccional < 1s)" ==> DDB2
-    S31 -- "S3 Cross-Region Replication (CRR con IAM Role)" --> S32
-```
-
----
-
-## 3. Stack Tecnológico
+## 2. Stack Tecnológico
 
 | Capa | Tecnologías / Servicios | Función Principal |
 | :--- | :--- | :--- |
@@ -81,7 +34,7 @@ flowchart TD
 
 ---
 
-## 4. Estructura del Repositorio
+## 3. Estructura del Repositorio
 
 ```text
 DisasterRecovery-MultiRegion/
@@ -119,9 +72,9 @@ DisasterRecovery-MultiRegion/
 
 ---
 
-## 5. Funcionamiento Detallado por Componentes
+## 4. Funcionalidades y Componentes del Sistema
 
-### 5.1 Red y Conectividad (VPC 3-Tier)
+### 4.1 Red y Conectividad (VPC 3-Tier)
 Cada región cuenta con una VPC aislada configurada en dos Zonas de Disponibilidad para tolerancia a fallos:
 * **VPC Primaria (`us-east-1`):** Bloque `10.0.0.0/16`.
 * **VPC Secundaria (`us-west-2`):** Bloque `10.1.0.0/16`.
@@ -131,7 +84,7 @@ Ambas implementan tres niveles de subredes:
 2. **Tier Privado de Aplicación:** Aloja las instancias EC2 del Auto Scaling Group. Tiene acceso saliente a internet exclusivamente a través del NAT Gateway.
 3. **Tier Privado de Datos:** Aloja la base de datos RDS MySQL. **Carece de rutas a internet (`0.0.0.0/0`)**; solo permite tráfico en el puerto `3306` originado desde el Security Group del cómputo.
 
-### 5.2 Capa de Cómputo y Balanceo
+### 4.2 Capa de Cómputo y Balanceo
 * **Application Load Balancer:** Recibe el tráfico HTTP en el puerto 80 y lo distribuye hacia el puerto 8000 de las instancias EC2 mediante un Target Group con Health Checks cada 10 segundos en `/health`.
 * **Launch Template:** Especifica instancias `t3.micro` con Amazon Linux 2023. En el script de `user_data`, instala Docker, clona el código fuente y levanta el contenedor de la API inyectando las variables de base de datos y AWS.
 * **Auto Scaling Group y Prevención de Drift:**
@@ -144,7 +97,7 @@ Ambas implementan tres niveles de subredes:
   ```
   Esto previene que una ejecución posterior de Terraform revierta el escalado a 0 una vez que la región secundaria haya sido activada por un failover.
 
-### 5.3 Persistencia Políglota y Replicación Cross-Region
+### 4.3 Persistencia Políglota y Replicación Cross-Region
 El sistema maneja tres tipos de datos con sus respectivos mecanismos de sincronización continua:
 1. **Datos Relacionales (Amazon RDS MySQL 8.0):**
    * Primario: Instancia Multi-AZ en `us-east-1` para conmutación síncrona local entre zonas.
@@ -157,7 +110,7 @@ El sistema maneja tres tipos de datos con sus respectivos mecanismos de sincroni
    * Buckets con versionado activo y cifrado en reposo `AES-256`.
    * Regla de Cross-Region Replication (CRR) con rol IAM dedicado que transfiere automáticamente objetos y marcadores de borrado entre regiones.
 
-### 5.4 Borde y Enrutamiento Global
+### 4.4 Borde y Enrutamiento Global
 * **Route 53 Failover DNS:**
   * Health Checks monitorean `/health` cada **10 segundos** con un umbral de 3 fallos consecutivos (detección en 30 segundos).
   * Registro Alias `PRIMARY` hacia el ALB de `us-east-1` y `SECONDARY` hacia el ALB de `us-west-2`.
@@ -166,7 +119,7 @@ El sistema maneja tres tipos de datos con sus respectivos mecanismos de sincroni
 
 ---
 
-## 6. API Transaccional y Resiliencia (`api/main.py`)
+## 5. API Transaccional y Resiliencia (`api/main.py`)
 
 La API FastAPI está construida para manejar caídas y conmutaciones sin interrupciones:
 * **Manejo de Desconexiones con `pool_pre_ping=True`:**
@@ -190,7 +143,7 @@ La API FastAPI está construida para manejar caídas y conmutaciones sin interru
 
 ---
 
-## 7. Automatización SRE de Failover (`automation/failover_trigger.py`)
+## 6. Automatización SRE de Failover (`automation/failover_trigger.py`)
 
 Script en Python utilizando **Boto3** que ejecuta la conmutación sin intervención manual en consolas:
 1. **Detección Dinámica:** Descubre el nombre generado del Auto Scaling Group secundario mediante el prefijo `dr-architecture-secondary-asg-`.
@@ -201,7 +154,7 @@ Script en Python utilizando **Boto3** que ejecuta la conmutación sin intervenci
 
 ---
 
-## 8. Ciclo de Vida del Desastre (Failover y Failback)
+## 7. Ciclo de Vida del Desastre (Failover y Failback)
 
 ```
 [1. Operación Normal]
@@ -234,7 +187,7 @@ Script en Python utilizando **Boto3** que ejecuta la conmutación sin intervenci
 
 ---
 
-## 9. Pruebas de Carga y Caos con Locust (`tests/`)
+## 8. Pruebas de Carga y Caos con Locust (`tests/`)
 
 El sistema incluye una suite de pruebas con **Locust** ([locust.io](https://locust.io/)) para validar el comportamiento bajo estrés concurrente:
 
@@ -248,28 +201,28 @@ El sistema incluye una suite de pruebas con **Locust** ([locust.io](https://locu
 
 ---
 
-## 10. Guía de Ejecución Rápida
+## 9. Guía de Ejecución y Despliegue
 
-### A. Simulación End-to-End con Locust
+### 9.1 Simulación End-to-End con Locust
 ```bash
 pip install -r tests/requirements.txt
 python tests/simulate_dr_end_to_end.py
 ```
 *Genera el reporte HTML interactivo en [`docs/locust_dr_report.html`](docs/locust_dr_report.html).*
 
-### B. Interfaz Gráfica Web de Locust
+### 9.2 Interfaz Gráfica Web de Locust
 ```bash
 locust -f tests/locustfile.py --host http://localhost:8000
 ```
 *Abrir `http://localhost:8089` para lanzar usuarios y ver las gráficas en tiempo real.*
 
-### C. Entorno Local con Docker Compose
+### 9.3 Entorno Local con Docker Compose
 ```bash
 docker compose up --build -d
 python tests/test_api_connection.py --url http://localhost:8000
 ```
 
-### D. Despliegue en AWS con Terraform
+### 9.4 Despliegue en AWS con Terraform
 ```bash
 # 1. Región Primaria (us-east-1)
 cd terraform/environments/primary_us_east_1 && terraform init && terraform apply -auto-approve
@@ -281,7 +234,7 @@ cd ../secondary_us_west_2 && terraform init && terraform apply -auto-approve
 cd ../global && terraform init && terraform apply -auto-approve
 ```
 
-### E. Conmutación Manual (Failover y Failback)
+### 9.5 Conmutación Manual (Failover y Failback)
 ```bash
 # Activar región secundaria ante un desastre:
 python automation/failover_trigger.py --region us-west-2 --capacity 2
