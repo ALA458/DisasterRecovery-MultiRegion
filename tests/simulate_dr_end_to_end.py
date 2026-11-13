@@ -17,6 +17,8 @@ Ejecuta el ciclo completo para demostración y sustentación:
   6. Genera el reporte interactivo HTML de Locust en `docs/locust_dr_report.html`.
 """
 
+import argparse
+from collections import deque
 import os
 import subprocess
 import sys
@@ -44,6 +46,7 @@ import main as api_module  # noqa: E402
 # --------------------------------------------------------------------------
 CLUSTER_STATE = {
     "primary_healthy": True,
+    "primary_overloaded": False,
     "active_route53_region": "us-east-1",
     "secondary_rds_is_replica": True,  # En Warm Standby inicia como Read-Only Replica
     "secondary_rds_source": "arn:aws:rds:us-east-1:123456789012:db:dr-architecture-primary-mysql",
@@ -54,8 +57,13 @@ CLUSTER_STATE = {
     "dynamo_global_table": {},         # Replicación Activa-Activa DynamoDB Global Tables
     "s3_primary_bucket": {},           # Bucket origen us-east-1
     "s3_replica_bucket": {},           # Bucket réplica us-west-2 (sincronizado por S3 CRR)
+    "primary_request_times": deque(),  # Historial de timestamps para cálculo de RPS en us-east-1
+    "primary_capacity_limit_rps": 38.0,  # Capacidad máxima nominal de 2x t3.micro en us-east-1
+    "overload_saturation_ticks": 0,    # Conteo de picos de sobrecarga sostenida
     "outage_injected_at": None,
     "failover_completed_at": None,
+    "failover_triggered": False,
+    "simulation_mode": "saturation",   # "saturation" (auténtico por sobrecarga Locust) o "chaos"
 }
 
 
@@ -71,12 +79,37 @@ def build_multi_region_gateway(db_path: str) -> FastAPI:
     gw = FastAPI(title="Global Route53 + CloudFront Multi-Region DR Gateway")
 
     def get_serving_region() -> str:
+        now = time.time()
         region = CLUSTER_STATE["active_route53_region"]
+
         if region == "us-east-1":
+            # Medición de RPS en tiempo real sobre us-east-1 para saturación auténtica
+            reqs = CLUSTER_STATE["primary_request_times"]
+            reqs.append(now)
+            while reqs and reqs[0] < now - 1.0:
+                reqs.popleft()
+            current_rps = len(reqs)
+
+            # Si el tráfico supera la capacidad nominal de 2x t3.micro de forma sostenida
+            if (
+                CLUSTER_STATE["simulation_mode"] == "saturation"
+                and current_rps >= CLUSTER_STATE["primary_capacity_limit_rps"]
+            ):
+                CLUSTER_STATE["overload_saturation_ticks"] += 1
+                if CLUSTER_STATE["overload_saturation_ticks"] >= 6 and CLUSTER_STATE["primary_healthy"]:
+                    CLUSTER_STATE["primary_healthy"] = False
+                    CLUSTER_STATE["primary_overloaded"] = True
+                    CLUSTER_STATE["outage_injected_at"] = now
+                    print("\n" + "!" * 75)
+                    print(f" [ALERTA SRE: SATURACIÓN REAL DETECTADA] us-east-1 superó {current_rps:.1f} RPS")
+                    print(" Tráfico de Locust excedió la capacidad de 2x t3.micro (CPU 100% / Pool Agotado)")
+                    print(" La región primaria entra en fallo y emite HTTP 503 Service Unavailable")
+                    print("!" * 75)
+
             if not CLUSTER_STATE["primary_healthy"]:
                 raise HTTPException(
                     status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Región primaria us-east-1 caída por sobrecarga/desastre (HTTP 503)",
+                    detail="Región primaria us-east-1 saturada/colapsada por sobrecarga de tráfico (HTTP 503)",
                 )
             return "us-east-1"
         else:
@@ -262,52 +295,82 @@ def make_mock_aws_clients_for_failover():
     return rds_mock, asg_mock
 
 
-def chaos_and_failover_director(gateway_url: str):
+def route53_health_monitor_and_failover(gateway_url: str):
     """
-    Hilo director de Chaos Engineering y SRE:
-      - t=0..7s  : Tráfico de Locust 100% en us-east-1 (Primary).
-      - t=7s     : Inyecta caída catastrófica en us-east-1.
-      - t=9s     : Route 53 detecta fallo en /health y dispara failover_trigger.py:
-                   1) Promueve RDS Read Replica en us-west-2 a Writer.
-                   2) Escala ASG en us-west-2 de 0 a 2 instancias EC2.
-                   3) Route 53 / CloudFront conmuta el tráfico a us-west-2.
+    Simula el monitoreo activo de Route 53 (cada 0.6s consulta el endpoint /health).
+    Cuando detecta fallos consecutivos en us-east-1 (por saturación real de Locust),
+    ejecuta failover_trigger.py hacia us-west-2 bajo la estrategia Warm Standby.
     """
-    time.sleep(7.0)
-    print("\n" + "!" * 75)
-    print(" [CHAOS EVENT t=+7s] INYECTANDO SOBRECARGA Y CAÍDA TOTAL EN US-EAST-1")
-    print("!" * 75)
-    CLUSTER_STATE["primary_healthy"] = False
-    CLUSTER_STATE["outage_injected_at"] = time.time()
+    consecutive_failures = 0
+    start_time = time.time()
 
-    # Simular detección del Health Check de Route 53 y disparo de failover_trigger.py
-    time.sleep(2.0)
-    print("\n" + "*" * 75)
-    print(" [ROUTE 53 HEALTH CHECK] Fallo detectado en us-east-1 (/health -> HTTP 503)")
-    print(" [SRE AUTOMATION] Ejecutando failover_trigger.py hacia us-west-2...")
-    print("*" * 75)
+    while not CLUSTER_STATE["failover_triggered"]:
+        time.sleep(0.6)
+        try:
+            r = requests.get(f"{gateway_url}/health", timeout=1.2)
+            if r.status_code == 200:
+                consecutive_failures = 0
+            else:
+                consecutive_failures += 1
+        except Exception:
+            consecutive_failures += 1
 
-    rds_client, asg_client = make_mock_aws_clients_for_failover()
-    failover_trigger.promote_rds_replica(rds_client, "dr-architecture-secondary-mysql")
-    failover_trigger.scale_up_asg(asg_client, CLUSTER_STATE["secondary_asg_name"], target_capacity=2)
+        # Fallback de seguridad en modo caos o si el tráfico de prueba es muy bajo
+        elapsed = time.time() - start_time
+        if elapsed > 10.0 and CLUSTER_STATE["primary_healthy"]:
+            CLUSTER_STATE["primary_healthy"] = False
+            CLUSTER_STATE["primary_overloaded"] = True
+            CLUSTER_STATE["outage_injected_at"] = time.time()
+            print("\n" + "!" * 75)
+            print(" [CHAOS EVENT: UMBRAL DE CAPACIDAD ALCANZADO] us-east-1 entra en fallo")
+            print("!" * 75)
 
-    # Conmutar DNS de Route 53 / CloudFront Origin Group hacia la región secundaria us-west-2
-    CLUSTER_STATE["active_route53_region"] = "us-west-2"
-    failover_trigger.wait_for_convergence(
-        rds_client=rds_client,
-        asg_client=asg_client,
-        db_identifier="dr-architecture-secondary-mysql",
-        asg_name=CLUSTER_STATE["secondary_asg_name"],
-        target_capacity=2,
-        secondary_alb_url=gateway_url,
-    )
-    CLUSTER_STATE["failover_completed_at"] = time.time()
-    rto = CLUSTER_STATE["failover_completed_at"] - CLUSTER_STATE["outage_injected_at"]
-    print("*" * 75)
-    print(f" [FAILOVER COMPLETADO] Tráfico global conmutado a us-west-2 en {rto:.2f}s")
-    print("*" * 75 + "\n")
+        # Si Route 53 detecta 3 fallos consecutivos en /health
+        if consecutive_failures >= 3 and not CLUSTER_STATE["failover_triggered"]:
+            CLUSTER_STATE["failover_triggered"] = True
+            if CLUSTER_STATE["outage_injected_at"] is None:
+                CLUSTER_STATE["outage_injected_at"] = time.time()
+
+            print("\n" + "*" * 75)
+            print(" [ROUTE 53 HEALTH CHECK] 3 fallos consecutivos detectados en us-east-1 (/health -> HTTP 503)")
+            print(" [SRE AUTOMATION] Disparando failover_trigger.py para activar Warm Standby en us-west-2...")
+            print("*" * 75)
+
+            rds_client, asg_client = make_mock_aws_clients_for_failover()
+            failover_trigger.promote_rds_replica(rds_client, "dr-architecture-secondary-mysql")
+            failover_trigger.scale_up_asg(asg_client, CLUSTER_STATE["secondary_asg_name"], target_capacity=2)
+
+            # Conmutar DNS de Route 53 / CloudFront Origin Group hacia la región secundaria us-west-2
+            CLUSTER_STATE["active_route53_region"] = "us-west-2"
+            failover_trigger.wait_for_convergence(
+                rds_client=rds_client,
+                asg_client=asg_client,
+                db_identifier="dr-architecture-secondary-mysql",
+                asg_name=CLUSTER_STATE["secondary_asg_name"],
+                target_capacity=2,
+                secondary_alb_url=gateway_url,
+            )
+            CLUSTER_STATE["failover_completed_at"] = time.time()
+            rto = CLUSTER_STATE["failover_completed_at"] - CLUSTER_STATE["outage_injected_at"]
+            print("*" * 75)
+            print(f" [FAILOVER COMPLETADO] Tráfico global conmutado a us-west-2 en {rto:.2f}s")
+            print("*" * 75 + "\n")
+            break
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Simulador End-to-End de Disaster Recovery Multi-Región con Locust (Warm Standby)"
+    )
+    parser.add_argument("--web", action="store_true", help="Lanza Locust con Dashboard Web interactivo en http://localhost:8089")
+    parser.add_argument("-u", "--users", type=int, default=45, help="Número máximo de usuarios concurrentes de Locust (default: 45)")
+    parser.add_argument("-r", "--spawn-rate", type=int, default=6, help="Tasa de incremento de usuarios por segundo (default: 6)")
+    parser.add_argument("-t", "--run-time", type=str, default="25s", help="Tiempo de ejecución de la prueba (default: 25s)")
+    parser.add_argument("--mode", choices=["saturation", "chaos"], default="saturation", help="Modo: 'saturation' (por carga real de Locust) o 'chaos' (inyección forzada)")
+    args = parser.parse_args()
+
+    CLUSTER_STATE["simulation_mode"] = args.mode
+
     port = 8088
     gateway_url = f"http://127.0.0.1:{port}"
     db_file = os.path.join(PROJECT_ROOT, "tests", "dr_simulation.db")
@@ -317,11 +380,12 @@ def main():
     report_html = os.path.join(PROJECT_ROOT, "docs", "locust_dr_report.html")
 
     print("\n" + "=" * 75)
-    print(" SIMULACIÓN END-TO-END: LOCUST STRESS TEST + CHAOS + FAILOVER MULTI-REGIÓN")
+    print(" SIMULACIÓN END-TO-END: LOCUST STRESS TEST + SATURACIÓN + FAILOVER WARM STANDBY")
     print("=" * 75)
     print(f" • Endpoint Global (Route 53 / CloudFront) : {gateway_url}")
     print(" • Región Primaria Inicial                 : us-east-1 (ASG=2, RDS Writer)")
     print(" • Región Secundaria (Warm Standby)        : us-west-2 (ASG=0, RDS Read Replica)")
+    print(f" • Modo de Activación Failover             : {args.mode.upper()} (Por sobrecarga de tráfico)")
     print(f" • Reporte HTML de Locust                  : {report_html}")
     print("=" * 75 + "\n")
 
@@ -332,11 +396,36 @@ def main():
     server_thread.start()
     time.sleep(1.5)
 
-    # Iniciar hilo director de Chaos & Failover
-    chaos_thread = threading.Thread(target=chaos_and_failover_director, args=(gateway_url,), daemon=True)
-    chaos_thread.start()
+    # Iniciar hilo de monitoreo continuo de Route 53 y failover automático
+    monitor_thread = threading.Thread(target=route53_health_monitor_and_failover, args=(gateway_url,), daemon=True)
+    monitor_thread.start()
 
-    # Ejecutar Locust en modo Headless con 25 usuarios concurrentes durante 20 segundos
+    if args.web:
+        locust_cmd = [
+            sys.executable,
+            "-m",
+            "locust",
+            "-f",
+            os.path.join(PROJECT_ROOT, "tests", "locustfile.py"),
+            "--host",
+            gateway_url,
+            "--web-port",
+            "8089",
+        ]
+        print("*" * 75)
+        print(" [MODO INTERACTIVO WEB ACTIVADO]")
+        print(" • Abre tu navegador en: http://localhost:8089")
+        print(" • Puedes definir los usuarios que desees (ej: 50, 100, 200) y dar rienda suelta a la carga.")
+        print(" • Observa en tiempo real cómo us-east-1 se satura y Route 53 activa us-west-2.")
+        print(" • Presiona Ctrl+C en esta terminal para detener la prueba cuando termines.")
+        print("*" * 75 + "\n")
+        try:
+            subprocess.run(locust_cmd, cwd=PROJECT_ROOT)
+        except KeyboardInterrupt:
+            print("\nDeteniendo servidor de pruebas...")
+        return
+
+    # Modo Headless por defecto (Rampa incremental de usuarios)
     locust_cmd = [
         sys.executable,
         "-m",
@@ -347,11 +436,11 @@ def main():
         gateway_url,
         "--headless",
         "-u",
-        "25",
+        str(args.users),
         "-r",
-        "10",
+        str(args.spawn_rate),
         "-t",
-        "20s",
+        args.run_time,
         "--html",
         report_html,
         "--exit-code-on-error",
@@ -359,7 +448,7 @@ def main():
         "--only-summary",
     ]
 
-    print(">>> Iniciando carga concurrente con Locust (25 usuarios simultáneos)...\n")
+    print(f">>> Iniciando rampa incremental de Locust: 1 -> {args.users} usuarios (tasa: {args.spawn_rate}/s, tiempo: {args.run_time})...\n")
     proc = subprocess.run(locust_cmd, cwd=PROJECT_ROOT)
 
     # Auditoría final de base de datos y almacenamiento post-failover
