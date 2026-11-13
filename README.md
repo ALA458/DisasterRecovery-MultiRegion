@@ -1,54 +1,33 @@
-# Estrategia de Disaster Recovery Multi-Región en AWS (Warm Standby)
+# Disaster Recovery Multi-Región en AWS (Warm Standby)
 
-Proyecto integral de diseño, implementación y validación de una arquitectura de alta disponibilidad y recuperación ante desastres (**Disaster Recovery - DR**) en **Amazon Web Services (AWS)** bajo el modelo **Warm Standby**, con objetivos de nivel de servicio estrictos:
-* **RTO (Recovery Time Objective):** $< 15$ minutos ($900$ segundos)
-* **RPO (Recovery Point Objective):** $< 5$ minutos ($300$ segundos)
-
----
-
-## Equipo de Trabajo
-
-* **Universidad Tecnológica de Bolívar (UTB)** — Arquitectura de Sistemas Distribuidos y Cloud Computing
-* **Integrantes y Roles:**
-  * **Maykol Stiven Madrid Romero — `T00078588`** | *Compute & Networking Specialist*
-  * **Joel David Gonzalez Barros — `T00078571`** | *DevOps Lead & Core IaC*
-  * **Álvaro Jesús Ayala Alcala — `T00078312`** | *Database & Persistence Engineer*
-  * **Diego Peña Paez — `T00067812`** | *SRE & Automation Engineer*
+Arquitectura de alta disponibilidad y recuperación ante desastres (**Disaster Recovery - DR**) en **Amazon Web Services (AWS)** basada en el modelo **Warm Standby**, diseñada para garantizar continuidad de negocio con objetivos de resiliencia estrictos:
+* **RTO (Recovery Time Objective):** $< 15$ minutos ($900$ s)
+* **RPO (Recovery Point Objective):** $< 5$ minutos ($300$ s)
 
 ---
 
-## 1. Fundamentos y Estrategia: ¿Por qué Warm Standby?
+## 1. Visión General del Sistema
 
-En la computación en la nube existen cuatro patrones principales de Disaster Recovery:
+El sistema implementa una arquitectura web transaccional distribuida geográficamente en dos regiones de AWS:
+* **Región Primaria (`us-east-1`):** Opera con capacidad productiva completa atendiendo el 100% del tráfico de los usuarios.
+* **Región Secundaria (`us-west-2`):** Opera en modo **Warm Standby**; mantiene las capas de datos replicadas continuamente en tiempo real, mientras que la capa de cómputo (instancias EC2) permanece en reposo (`desired_capacity = 0`) para optimizar costos de infraestructura.
 
-```
-[Menor Costo / Mayor RTO]                                   [Mayor Costo / Menor RTO]
-Backup & Restore (Horas)  -->  Pilot Light (20-45m)  -->  Warm Standby (< 15m)  -->  Active-Active (< 1m)
-                                                            ▲
-                                                     [NUESTRA ELECCIÓN]
-```
-
-* **Descarte de Backup & Restore y Pilot Light:** Presentan tiempos de recuperación inaceptables ($> 30\text{ minutos}$ a varias horas) debido a la necesidad de reconstruir la red, bases de datos o esperar el aprovisionamiento de máquinas virtuales desde cero.
-* **Descarte de Active-Active Multi-Región:** Duplica al $200\%$ los costos de cómputo en reposo continuo y genera una latencia de red跨-región inadmisible ($70\text{ a }90\text{ ms}$) en los `COMMIT` sincrónicos de bases de datos relacionales, además de complejos conflictos de concurrencia multi-maestro.
-* **Ventajas del Modelo Warm Standby:**
-  1. **Persistencia Sincronizada en Tiempo Real:** Las tres capas de datos (RDS Read Replica, DynamoDB Global Tables y S3 Cross-Region Replication) operan de forma continua.
-  2. **Ahorro de Costos Óptimo:** La VPC, subredes, firewalls y el Balanceador de Carga (ALB) en la región secundaria (`us-west-2`) están aprovisionados y activos, pero las instancias de cómputo EC2 se mantienen en **`desired_capacity = 0`** (cero costo de cómputo en reposo).
-  3. **Conmutación en Minutos:** Ante un desastre, la automatización en Python Boto3 promueve la base de datos a escritora y escala el grupo de instancias a capacidad productiva en minutos, cumpliendo holgadamente el **RTO $< 15\text{ min}$** y **RPO $< 5\text{ min}$**.
+Ante una caída total o sobrecarga crítica en la región primaria, el borde de la red (Route 53 y CloudFront) detecta la falla y un proceso automatizado de SRE promueve la base de datos secundaria y escala el grupo de cómputo, restableciendo el servicio de forma transparente.
 
 ---
 
-## 2. Arquitectura Global de la Solución
+## 2. Diagrama de Arquitectura
 
 ```mermaid
 flowchart TD
-    subgraph EdgeTier ["Borde y Distribución Global (Anycast / DNS)"]
-        Users["Usuarios / Clientes / Locust"] --> CF["AWS CloudFront (Origin Group Multi-Region)"]
-        CF --> R53["Route 53 Failover DNS (Health Check cada 10 seg)"]
+    subgraph EdgeTier ["Capa de Borde Global (Anycast / DNS)"]
+        Users["Clientes / Tráfico Web / Locust"] --> CF["AWS CloudFront (Origin Group Multi-Region)"]
+        CF --> R53["Route 53 Failover DNS (Health Check cada 10s)"]
     end
 
-    subgraph RegionPrimary ["Región Primaria: us-east-1 (Activa - Productiva)"]
+    subgraph RegionPrimary ["Región Primaria: us-east-1 (Activa - Tráfico Productivo)"]
         ALB1["Application Load Balancer (us-east-1)"]
-        ASG1["EC2 Auto Scaling Group (2-4 Instancias t3.micro)\nAPI FastAPI Contenerizada"]
+        ASG1["Auto Scaling Group (2-4 Instancias t3.micro)\nAPI FastAPI Contenerizada"]
         RDS1[("RDS MySQL 8.0 Multi-AZ\nEscritor Primario")]
         DDB1[("DynamoDB Table\nuser_sessions (Streams ON)")]
         S31["S3 Source Bucket\nVersionado Habilitado"]
@@ -61,7 +40,7 @@ flowchart TD
 
     subgraph RegionSecondary ["Región Secundaria: us-west-2 (Warm Standby - desired=0)"]
         ALB2["Application Load Balancer (us-west-2 - Activo)"]
-        ASG2["EC2 Auto Scaling Group (desired=0 -> escala a 2 en Failover)\nAPI FastAPI"]
+        ASG2["Auto Scaling Group (desired=0 -> escala a 2 en Failover)\nAPI FastAPI"]
         RDS2[("RDS MySQL Read Replica\nReplicación Asíncrona")]
         DDB2[("DynamoDB Replica\nReplicación Activa-Activa")]
         S32["S3 Replica Bucket\nDestino de CRR"]
@@ -76,101 +55,121 @@ flowchart TD
     R53 -. "Conmutación por Error (SECONDARY)" .-> ALB2
     CF -- "Origin Failover (HTTP 500/502/503/504)" -.-> ALB2
 
-    %% Canales de Replicación
-    RDS1 -- "Replicación Asíncrona Cross-Region (RPO < 5s)" --> RDS2
-    DDB1 <== "DynamoDB Global Tables (Activo-Activo < 1s)" ==> DDB2
+    %% Canales de Sincronización de Datos
+    RDS1 -- "Replicación Asíncrona Cross-Region (binlogs)" --> RDS2
+    DDB1 <== "DynamoDB Global Tables (Bidireccional < 1s)" ==> DDB2
     S31 -- "S3 Cross-Region Replication (CRR con IAM Role)" --> S32
 ```
 
 ---
 
-## 3. Estructura del Repositorio y Explicación de Código
+## 3. Stack Tecnológico
+
+| Capa | Tecnologías / Servicios | Función Principal |
+| :--- | :--- | :--- |
+| **Infraestructura como Código (IaC)** | Terraform (v1.10.x) | Aprovisionamiento modular, repetible y parametrizado de recursos AWS. |
+| **Borde y DNS** | AWS Route 53, AWS CloudFront | Monitoreo por Health Checks (10s), DNS Failover y Origin Group Failover. |
+| **Red** | AWS VPC, Subredes, IGW, NAT GW | Aislamiento en 3 Tiers (Público, App Privada, Datos Privados) sin colisión de CIDRs. |
+| **Cómputo** | AWS EC2, Auto Scaling Groups, ALB, Docker | Ejecución contenerizada elástica de la API con despliegue vía Launch Templates. |
+| **Persistencia Relacional** | Amazon RDS MySQL 8.0 | Transacciones financieras ACID. Multi-AZ primario y Read Replica Cross-Region. |
+| **Persistencia NoSQL** | Amazon DynamoDB Global Tables | Gestión de carritos y sesiones con replicación multi-maestro activa-activa. |
+| **Almacenamiento de Objetos** | Amazon S3 | Facturas digitales con versionado y Cross-Region Replication (CRR). |
+| **Backend / API** | Python 3.11, FastAPI, SQLAlchemy, Pydantic | API REST transaccional con reconexión elástica (`pool_pre_ping`). |
+| **Automatización SRE** | Python 3, Boto3 | Script autónomo de Failover (promoción de base de datos y escalado de cómputo). |
+| **Pruebas de Carga y Caos** | Locust | Inyección de estrés concurrente, simulación de caída regional y auditoría de SLA. |
+| **CI/CD** | GitHub Actions | Validación estática en Pull Requests y despliegue continuo secuencial en `main`. |
+
+---
+
+## 4. Estructura del Repositorio
 
 ```text
+DisasterRecovery-MultiRegion/
 ├── .github/
 │   └── workflows/
-│       └── terraform.yml            # CI/CD: Validación estática en PRs y Despliegue Secuencial en main
+│       └── terraform.yml            # Pipeline CI/CD: formateo, validación y despliegue secuencial
 ├── api/
-│   ├── Dockerfile                   # Contenedor multi-stage optimizado (python:3.11-slim)
-│   ├── main.py                      # API REST transaccional (FastAPI, SQLAlchemy, Boto3)
-│   └── requirements.txt             # Dependencias de la API
+│   ├── Dockerfile                   # Imagen multi-stage optimizada sobre python:3.11-slim
+│   ├── main.py                      # API REST transaccional con endpoints de observabilidad y negocio
+│   └── requirements.txt             # Dependencias del servicio web
 ├── automation/
-│   └── failover_trigger.py          # Script SRE Boto3: promueve RDS Read Replica, escala ASG (0->2) y mide RTO
+│   └── failover_trigger.py          # Automatización SRE: promoción de RDS y escalado de ASG
 ├── docs/
-│   ├── locust_dr_report.html        # Reporte gráfico interactivo de pruebas de carga y Failover con Locust
-│   └── runbook.md                   # Procedimientos operativos estándar (SOP de Failover & Failback)
+│   ├── locust_dr_report.html        # Reporte interactivo de pruebas de carga y conmutación
+│   └── runbook.md                   # Procedimientos operativos estándar de Failover y Failback
 ├── terraform/
 │   ├── environments/
-│   │   ├── global/                  # Fase 3: Route 53 Failover DNS + CloudFront Origin Group
-│   │   ├── primary_us_east_1/       # Fase 1: Infraestructura productiva en us-east-1 (desired=2)
-│   │   └── secondary_us_west_2/     # Fase 2: Infraestructura Warm Standby en us-west-2 (desired=0)
+│   │   ├── global/                  # Entorno global: Route 53 Failover DNS y CloudFront Origin Group
+│   │   ├── primary_us_east_1/       # Entorno primario: VPC 10.0.0.0/16, ALB, ASG (desired=2), RDS Multi-AZ
+│   │   └── secondary_us_west_2/     # Entorno secundario: VPC 10.1.0.0/16, ASG (desired=0), RDS Replica
 │   └── modules/
-│       ├── compute_alb_asg/         # Balanceador ALB, IAM Roles, Launch Template y Auto Scaling Group
-│       ├── database_rds/            # Instancia MySQL 8.0 (soporta Primary Multi-AZ y Read Replica Cross-Region)
-│       ├── route53_failover/        # Hosted Zone, Health Checks HTTP (10s) y Registros Alias PRIMARY/SECONDARY
-│       ├── storage_s3/              # Buckets S3 con versionado, cifrado AES-256 y reglas CRR
-│       └── vpc/                     # Red VPC 3-Tier (subredes públicas, privadas de app y privadas de datos)
+│       ├── compute_alb_asg/         # Balanceador ALB, Launch Template, ASG e IAM Role para EC2
+│       ├── database_rds/            # RDS MySQL (modo Multi-AZ Writer o Read Replica Cross-Region)
+│       ├── route53_failover/        # Hosted Zone, Health Checks y registros Alias PRIMARY/SECONDARY
+│       ├── storage_s3/              # S3 con versionado, cifrado SSE-S3 y reglas CRR
+│       └── vpc/                     # Red 3-Tier (subredes públicas, privadas de app y privadas de datos)
 ├── tests/
-│   ├── locustfile.py                # Escenario de pruebas de carga concurrente y auditoría SLA con Locust
-│   ├── requirements.txt             # Dependencias de pruebas
-│   ├── simulate_dr_end_to_end.py    # Simulador E2E: Carga masiva + Inyección de Caos + Failover + Reporte HTML
-│   ├── test_api_connection.py       # Validación E2E Fase 1 (6 pruebas funcionales)
-│   └── test_replication_fase2.py    # Validación E2E Fase 2 (auditoría de replicación cross-region)
-└── docker-compose.yml               # Entorno local completo (MySQL 8.0 + LocalStack S3/DynamoDB + API)
+│   ├── locustfile.py                # Definición de pruebas de carga concurrentes con Locust
+│   ├── requirements.txt             # Dependencias de testing
+│   ├── simulate_dr_end_to_end.py    # Orquestador E2E: Carga Locust + Caos + Failover + Reporte HTML
+│   ├── test_api_connection.py       # Pruebas funcionales de conectividad de la API
+│   └── test_replication_fase2.py    # Verificación de replicación cross-region en us-west-2
+└── docker-compose.yml               # Entorno de emulación local (MySQL 8.0 + LocalStack S3/DynamoDB + API)
 ```
 
 ---
 
-## 4. Desglose Técnico por Capas y Componentes
+## 5. Funcionamiento Detallado por Componentes
 
-### A. Capa de Red (VPC 3-Tier) — `terraform/modules/vpc/`
-* **Aislamiento Geográfico y CIDRs Desacoplados:**
-  * Región Primaria (`us-east-1`): Red `10.0.0.0/16`.
-  * Región Secundaria (`us-west-2`): Red `10.1.0.0/16`.
-  * Esta separación evita solapamientos y permite establecer VPC Peering o Transit Gateway sin conflicto.
-* **Segmentación en 3 Tiers (en 2 Zonas de Disponibilidad para alta disponibilidad local):**
-  1. *Subredes Públicas:* Acomodan los Application Load Balancers (ALB) y NAT Gateways con salida por Internet Gateway.
-  2. *Subredes Privadas de Aplicación:* Acomodan las instancias EC2 del Auto Scaling Group con salida saliente a internet vía NAT Gateway para comunicarse con APIs de AWS.
-  3. *Subredes Privadas de Datos:* Aisladas estrictamente sin salida a internet (`0.0.0.0/0`); solo admiten tráfico TCP en el puerto `3306` originado desde el Security Group de las instancias EC2.
+### 5.1 Red y Conectividad (VPC 3-Tier)
+Cada región cuenta con una VPC aislada configurada en dos Zonas de Disponibilidad para tolerancia a fallos:
+* **VPC Primaria (`us-east-1`):** Bloque `10.0.0.0/16`.
+* **VPC Secundaria (`us-west-2`):** Bloque `10.1.0.0/16`.
 
-### B. Capa de Cómputo Elástico — `terraform/modules/compute_alb_asg/`
-* **Application Load Balancer (ALB):** Expone el puerto 80 y distribuye tráfico hacia el puerto 8000 mediante un Target Group con sondeo cada 10 segundos en `/health`.
-* **Launch Template:** Instancias `t3.micro` con Amazon Linux 2023. El script de arranque (`user_data`) instala Docker, clona el repositorio desde GitHub y levanta el contenedor de la API inyectando las variables de base de datos y AWS.
+Ambas implementan tres niveles de subredes:
+1. **Tier Público:** Aloja el balanceador ALB e Internet Gateway. Contiene la Elastic IP del NAT Gateway.
+2. **Tier Privado de Aplicación:** Aloja las instancias EC2 del Auto Scaling Group. Tiene acceso saliente a internet exclusivamente a través del NAT Gateway.
+3. **Tier Privado de Datos:** Aloja la base de datos RDS MySQL. **Carece de rutas a internet (`0.0.0.0/0`)**; solo permite tráfico en el puerto `3306` originado desde el Security Group del cómputo.
+
+### 5.2 Capa de Cómputo y Balanceo
+* **Application Load Balancer:** Recibe el tráfico HTTP en el puerto 80 y lo distribuye hacia el puerto 8000 de las instancias EC2 mediante un Target Group con Health Checks cada 10 segundos en `/health`.
+* **Launch Template:** Especifica instancias `t3.micro` con Amazon Linux 2023. En el script de `user_data`, instala Docker, clona el código fuente y levanta el contenedor de la API inyectando las variables de base de datos y AWS.
 * **Auto Scaling Group y Prevención de Drift:**
+  El ASG de `us-west-2` se inicializa con `min_size = 0` y `desired_capacity = 0`. El recurso en Terraform incluye:
   ```hcl
   lifecycle {
     create_before_destroy = true
     ignore_changes        = [desired_capacity, min_size]
   }
   ```
-  Permite que en `us-west-2` el ASG arranque en `0` instancias y que, cuando el script de failover lo escale a `2`, futuras ejecuciones de Terraform no reviertan el clúster a cero.
-* **Gestión Segura con AWS SSM:** Se asocia la política administrada `AmazonSSMManagedInstanceCore` al IAM Role de las EC2, permitiendo gestión por consola mediante Session Manager sin necesidad de abrir el puerto SSH 22.
+  Esto previene que una ejecución posterior de Terraform revierta el escalado a 0 una vez que la región secundaria haya sido activada por un failover.
 
-### C. Capa de Persistencia Políglota — `terraform/modules/`
-1. **Relacional (RDS MySQL 8.0) — `database_rds/`:**
-   * En `us-east-1`: Configurado como escritor maestro con **Multi-AZ habilitado** (standby síncrono intra-región) y retención de backups de 7 días.
-   * En `us-west-2`: Configurado como **Read Replica asíncrona Cross-Region** enlazada mediante `replicate_source_db`.
-   * Incluye `lifecycle { ignore_changes = [replicate_source_db] }` para que cuando el failover rompa la réplica y la convierta en Standalone Writer, Terraform no intente destruirla.
-2. **NoSQL (DynamoDB Global Tables) — `secondary_us_west_2/`:**
-   * La tabla `user_sessions` en `us-east-1` tiene habilitado `DynamoDB Streams` con vista `NEW_AND_OLD_IMAGES`.
-   * El recurso `aws_dynamodb_table_replica` extiende la tabla a `us-west-2`, proporcionando replicación activa-activa bidireccional en menos de 1 segundo.
-3. **Almacenamiento de Objetos (Amazon S3) — `storage_s3/`:**
-   * Versionado obligatorio activo (`aws_s3_bucket_versioning`).
-   * Cifrado en reposo `SSE-S3` (`AES-256`) y bloqueo total de acceso público.
-   * Regla de **Cross-Region Replication (CRR)** respaldada por un rol IAM que replica objetos y marcadores de borrado de forma automática hacia el bucket réplica en `us-west-2`.
+### 5.3 Persistencia Políglota y Replicación Cross-Region
+El sistema maneja tres tipos de datos con sus respectivos mecanismos de sincronización continua:
+1. **Datos Relacionales (Amazon RDS MySQL 8.0):**
+   * Primario: Instancia Multi-AZ en `us-east-1` para conmutación síncrona local entre zonas.
+   * Secundario: Read Replica asíncrona en `us-west-2` enlazada vía `replicate_source_db`.
+   * Incluye `lifecycle { ignore_changes = [replicate_source_db] }` para que al promoverse a Standalone Writer durante el desastre, Terraform no intente recrearla.
+2. **Sesiones y Carritos NoSQL (Amazon DynamoDB Global Tables):**
+   * Tabla `user_sessions` con Streams habilitados (`NEW_AND_OLD_IMAGES`).
+   * Replicación bidireccional Activa-Activa entre ambas regiones con latencia de propagación inferior a 1 segundo.
+3. **Comprobantes y Archivos (Amazon S3 CRR):**
+   * Buckets con versionado activo y cifrado en reposo `AES-256`.
+   * Regla de Cross-Region Replication (CRR) con rol IAM dedicado que transfiere automáticamente objetos y marcadores de borrado entre regiones.
 
-### D. Capa de Borde y Enrutamiento Global — `terraform/environments/global/`
-* **Route 53 Failover DNS (`route53_failover/`):**
-  * Health Checks HTTP de alta frecuencia cada **10 segundos** (`failure_threshold = 3`, detección en 30 segundos).
-  * Registro Alias `PRIMARY` apuntando al ALB de `us-east-1` y `SECONDARY` al ALB de `us-west-2`.
-* **AWS CloudFront Multi-Región:**
-  * Distribución global con **Origin Group Failover** (`dr-multi-region-origin-group`). Si el ALB primario responde con códigos `500, 502, 503` o `504`, CloudFront conmuta de forma transparente e instantánea al ALB secundario.
+### 5.4 Borde y Enrutamiento Global
+* **Route 53 Failover DNS:**
+  * Health Checks monitorean `/health` cada **10 segundos** con un umbral de 3 fallos consecutivos (detección en 30 segundos).
+  * Registro Alias `PRIMARY` hacia el ALB de `us-east-1` y `SECONDARY` hacia el ALB de `us-west-2`.
+* **AWS CloudFront (Origin Group):**
+  * Configura un grupo de orígenes que incluye ambos ALBs. Conmuta automáticamente las peticiones hacia el balanceador secundario si el primario responde con códigos de error `500, 502, 503` o `504`.
 
 ---
 
-## 5. API Transaccional y Patrones de Resiliencia (`api/main.py`)
+## 6. API Transaccional y Resiliencia (`api/main.py`)
 
-* **FastAPI + SQLAlchemy con `pool_pre_ping=True`:**
+La API FastAPI está construida para manejar caídas y conmutaciones sin interrupciones:
+* **Manejo de Desconexiones con `pool_pre_ping=True`:**
   ```python
   engine = create_engine(
       DATABASE_URL,
@@ -179,81 +178,98 @@ flowchart TD
       connect_args={"connect_timeout": 5}
   )
   ```
-  * *Manejo de Failover:* Cuando la base de datos de `us-west-2` es promovida de réplica de solo lectura a escritora, las conexiones TCP existentes se reinician. `pool_pre_ping=True` valida la conexión antes de despachar cada consulta; si el socket murió, lo reemplaza limpiamente sin arrojar errores al usuario.
-* **Endpoints Principales:**
-  * `GET /health`: Health Check ultra-ligero para Route 53 y ALB (indica estado y región activa).
-  * `GET /readiness`: Chequeo profundo de salud conectando a RDS (`SELECT 1`), DynamoDB (`describe_table`) y S3 (`head_bucket`).
-  * `POST /transaction`: Registra pagos con ID único UUID, monto, timestamp UTC y la etiqueta `region`.
-  * `GET /transactions/latest`: Consulta el histórico de transacciones para auditar el **RPO** (certifica que lo escrito en `us-east-1` antes del fallo esté íntegro).
-  * `POST /cart` y `GET /cart/{user_id}`: Persistencia de sesiones en DynamoDB Global Tables.
-  * `POST /invoice` y `GET /invoice/{id}`: Genera comprobantes en S3 y retorna su `VersionId` único.
+  Cuando la réplica de RDS se promueve a escritora, las conexiones TCP se resetean. El parámetro `pool_pre_ping` ejecuta una comprobación previa (`SELECT 1`) en cada consulta, descartando conexiones muertas y reestableciendo una conexión válida hacia el nuevo Writer de forma transparente.
+* **Separación de Monitoreo:**
+  * `/health`: Verificación inmediata ($< 1\text{ ms}$) utilizada por Route 53 y ALB para determinar la salud del nodo.
+  * `/readiness`: Sondeo profundo que valida la conectividad en vivo hacia RDS (`SELECT 1`), DynamoDB (`describe_table`) y S3 (`head_bucket`).
+* **Endpoints de Negocio:**
+  * `POST /transaction`: Registra pagos con ID único, monto y región de procesamiento.
+  * `GET /transactions/latest`: Consulta el histórico de transacciones para auditar el cumplimiento del RPO.
+  * `POST /cart` y `GET /cart/{user_id}`: Operaciones sobre carritos en DynamoDB Global Tables.
+  * `POST /invoice` y `GET /invoice/{id}`: Carga y verificación de comprobantes en S3 con metadatos y `VersionId`.
 
 ---
 
-## 6. Automatización SRE de Failover (`automation/failover_trigger.py`)
+## 7. Automatización SRE de Failover (`automation/failover_trigger.py`)
 
-Script autónomo en Python con el SDK **Boto3** que ejecuta la conmutación en segundos sin intervención manual:
-1. **Autodescubrimiento Dinámico:** La función `find_asg_by_prefix` detecta el nombre exacto del Auto Scaling Group secundario a partir del prefijo `dr-architecture-secondary-asg-`.
-2. **Promoción Idempotente de RDS:** Llama a `promote_read_replica` sobre `dr-architecture-secondary-mysql`. Si la base de datos ya fue promovida, continúa sin error.
-3. **Escalado Horizontal Warm Standby:** Eleva `MinSize = 2` y `DesiredCapacity = 2` en el ASG de `us-west-2`, encendiendo dos instancias EC2 en minutos.
-4. **Medición del RTO en Vivo:** La función `wait_for_convergence` sondea el estado de RDS, las instancias `InService` en el balanceador y el código HTTP 200 en `/health`, calculando e imprimiendo el tiempo exacto de recuperación.
-5. **Procedimiento de Retorno (Failback):** El parámetro `--mode scale-down` permite reducir nuevamente el ASG de `us-west-2` a `0` instancias cuando la región primaria se ha restablecido.
+Script en Python utilizando **Boto3** que ejecuta la conmutación sin intervención manual en consolas:
+1. **Detección Dinámica:** Descubre el nombre generado del Auto Scaling Group secundario mediante el prefijo `dr-architecture-secondary-asg-`.
+2. **Promoción de Base de Datos:** Llama a `promote_read_replica` sobre `dr-architecture-secondary-mysql`. La función es idempotente; si ya fue promovida, continúa sin generar error.
+3. **Escalado Horizontal:** Eleva `MinSize = 2` y `DesiredCapacity = 2` en el ASG de `us-west-2`, levantando dos instancias EC2 en minutos.
+4. **Sondeo de Convergencia:** Monitorea que RDS esté disponible, que las instancias EC2 alcancen el estado `InService` en el balanceador y que `/health` retorne HTTP 200, registrando el tiempo de recuperación (**RTO**) alcanzado.
+5. **Modo Failback:** El argumento `--mode scale-down` reduce el ASG secundario nuevamente a `0` instancias una vez que la región primaria se ha recuperado.
 
 ---
 
-## 7. Pruebas de Estrés y Caos con Locust (`tests/`)
+## 8. Ciclo de Vida del Desastre (Failover y Failback)
 
-Se implementó una suite con **Locust** ([locust.io](https://locust.io/)) para evaluar la resistencia del sistema bajo carga masiva y simular la caída regional:
+```
+[1. Operación Normal]
+  - Tráfico dirigido 100% a us-east-1 a través de CloudFront y Route 53 (PRIMARY).
+  - us-west-2 en reposo Warm Standby (ASG en desired=0, RDS como Read Replica).
+  - Sincronización continua de datos entre regiones.
 
-* **[tests/locustfile.py](tests/locustfile.py):** Modela usuarios virtuales concurrentes realizando operaciones ponderadas sobre RDS, DynamoDB y S3, auditando el campo `region` de cada respuesta.
-* **[tests/simulate_dr_end_to_end.py](tests/simulate_dr_end_to_end.py):**
-  1. Levanta el clúster multi-región con `us-east-1` activo y `us-west-2` en Warm Standby (`desired=0`).
-  2. Lanza Locust con **25 usuarios simultáneos**.
-  3. En $t = +7\text{s}$, **inyecta la caída total de `us-east-1` (`HTTP 503`)**.
-  4. Dispara automáticamente `failover_trigger.py`, promueve RDS y escala el ASG secundario a 2 instancias.
-  5. Conmuta el tráfico a `us-west-2` y genera el reporte gráfico HTML en [`docs/locust_dr_report.html`](docs/locust_dr_report.html).
+[2. Evento de Caída en us-east-1]
+  - Caída catastrófica o sobrecarga masiva en us-east-1.
+  - El endpoint /health de us-east-1 deja de responder o retorna HTTP 503.
 
-### Resultados Cuantitativos Obtenidos:
+[3. Detección y Conmutación en el Borde]
+  - Route 53 detecta 3 fallos consecutivos en 30 segundos y cambia el DNS hacia SECONDARY.
+  - CloudFront activa Origin Failover al recibir respuestas de error del primario.
 
-```text
-========================================================================================
-                     DICTAMEN DE AUDITORÍA Y CUMPLIMIENTO DE SLAs
-========================================================================================
- Métrica / Prueba         | Objetivo SLA       | Resultado Obtenido en Prueba  | Estado
---------------------------|--------------------|-------------------------------|--------
- Peticiones Totales       | Carga sostenida    | 1,222 peticiones (63.7 req/s) | OK
- Latencia Promedio        | < 50 ms            | 5 ms (Mediana: 2 ms)          | OK
- Transacciones us-east-1  | Pre-caída          | 73 registros procesados       | OK
- Transacciones us-west-2  | Post-failover      | 176 registros procesados      | OK
- RPO (Pérdida de datos)   | < 5 minutos (300s) | 0% pérdida (73/73 intactas)   | 100% OK
- RTO (Tiempo recuperación)| < 15 minutos (900s)| 2.01 a 2.04 segundos          | 100% OK
-========================================================================================
+[4. Disparo de Automatización SRE (failover_trigger.py)]
+  - Promueve la Read Replica de RDS en us-west-2 a Standalone Writer.
+  - Escala el Auto Scaling Group de us-west-2 de 0 a 2 instancias EC2.
+
+[5. Restablecimiento del Servicio]
+  - Las nuevas instancias entran en estado InService en el balanceador secundario.
+  - us-west-2 comienza a procesar lecturas y escrituras productivas.
+  - RTO observado: minutos | RPO observado: 0% pérdida de transacciones.
+
+[6. Procedimiento de Retorno (Failback)]
+  - La región primaria us-east-1 es restablecida.
+  - Se sincronizan los datos generados durante la contingencia.
+  - Se ejecuta failover_trigger.py --mode scale-down para regresar el ASG de us-west-2 a 0 instancias.
 ```
 
 ---
 
-## 8. Guía de Ejecución y Validación
+## 9. Pruebas de Carga y Caos con Locust (`tests/`)
 
-### A. Simulación End-to-End con Locust (Para Demostración Rápida)
+El sistema incluye una suite de pruebas con **Locust** ([locust.io](https://locust.io/)) para validar el comportamiento bajo estrés concurrente:
+
+* **[tests/locustfile.py](tests/locustfile.py):** Modela usuarios virtuales que generan tráfico ponderado contra la API, auditando en cada respuesta la región que atendió la petición.
+* **[tests/simulate_dr_end_to_end.py](tests/simulate_dr_end_to_end.py):**
+  1. Inicia un Gateway Global multi-región con `us-east-1` activo y `us-west-2` en Warm Standby.
+  2. Lanza Locust con 25 usuarios concurrentes.
+  3. En $t = +7\text{s}$, inyecta la caída de `us-east-1` (`HTTP 503`).
+  4. Dispara automáticamente `failover_trigger.py`, promueve RDS y escala el ASG secundario a 2 instancias.
+  5. Conmuta el tráfico a `us-west-2` y exporta el reporte gráfico interactivo a [`docs/locust_dr_report.html`](docs/locust_dr_report.html).
+
+---
+
+## 10. Guía de Ejecución Rápida
+
+### A. Simulación End-to-End con Locust
 ```bash
 pip install -r tests/requirements.txt
 python tests/simulate_dr_end_to_end.py
 ```
-*Abre [`docs/locust_dr_report.html`](docs/locust_dr_report.html) en tu navegador para ver las curvas interactivas de tráfico, percentiles y conmutación.*
+*Genera el reporte HTML interactivo en [`docs/locust_dr_report.html`](docs/locust_dr_report.html).*
 
-### B. Ejecución con Interfaz Gráfica de Locust (Dashboard en Vivo)
+### B. Interfaz Gráfica Web de Locust
 ```bash
 locust -f tests/locustfile.py --host http://localhost:8000
 ```
-*Accede a `http://localhost:8089` para lanzar usuarios concurrentes y monitorear las gráficas en tiempo real.*
+*Abrir `http://localhost:8089` para lanzar usuarios y ver las gráficas en tiempo real.*
 
-### C. Ejecución Local con Docker Compose
+### C. Entorno Local con Docker Compose
 ```bash
 docker compose up --build -d
 python tests/test_api_connection.py --url http://localhost:8000
 ```
 
-### D. Despliegue en AWS Real con Terraform
+### D. Despliegue en AWS con Terraform
 ```bash
 # 1. Región Primaria (us-east-1)
 cd terraform/environments/primary_us_east_1 && terraform init && terraform apply -auto-approve
@@ -265,13 +281,11 @@ cd ../secondary_us_west_2 && terraform init && terraform apply -auto-approve
 cd ../global && terraform init && terraform apply -auto-approve
 ```
 
-### E. Disparo Manual de Failover y Failback en AWS
+### E. Conmutación Manual (Failover y Failback)
 ```bash
-# Ejecutar Failover (Promover RDS y escalar ASG a 2 en us-west-2):
+# Activar región secundaria ante un desastre:
 python automation/failover_trigger.py --region us-west-2 --capacity 2
 
-# Ejecutar Failback (Reducir ASG secundario a 0 tras normalizar us-east-1):
+# Retornar a reposo Warm Standby tras normalización:
 python automation/failover_trigger.py --region us-west-2 --mode scale-down
 ```
-
-Consulta el procedimiento operativo estándar paso a paso en el [Runbook Operativo](docs/runbook.md).
