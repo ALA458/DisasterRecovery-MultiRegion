@@ -64,6 +64,7 @@ Proyecto de diseño e implementación de una arquitectura de alta disponibilidad
 ├── automation/
 │   └── failover_trigger.py              # Script SRE Boto3: promueve RDS Read Replica, escala ASG (0->2) y mide RTO
 ├── docs/
+│   ├── locust_dr_report.html            # Reporte gráfico interactivo de pruebas de estrés y Failover con Locust
 │   └── runbook.md                       # Procedimientos operativos estándar (SOP de Failover & Failback)
 ├── terraform/
 │   ├── environments/
@@ -77,6 +78,9 @@ Proyecto de diseño e implementación de una arquitectura de alta disponibilidad
 │       ├── storage_s3/                  # Buckets S3 con versionado, cifrado AES-256 y reglas CRR
 │       └── vpc/                         # Red VPC 3-Tier (subredes públicas, privadas de app y privadas de datos aisladas)
 ├── tests/
+│   ├── locustfile.py                    # Definición de carga concurrente y auditoría SLA (RTO/RPO) con Locust
+│   ├── requirements.txt                 # Dependencias para pruebas E2E y pruebas de estrés con Locust
+│   ├── simulate_dr_end_to_end.py        # Simulador End-to-End: Carga Locust + Caída us-east-1 + Failover us-west-2
 │   ├── test_api_connection.py           # Suite de validación E2E Fase 1 (6 pruebas de salud y persistencia)
 │   └── test_replication_fase2.py        # Suite de validación E2E Fase 2 (auditoría de replicación en us-west-2)
 └── docker-compose.yml                   # Entorno local completo (MySQL 8.0 + LocalStack S3/DynamoDB + API)
@@ -102,15 +106,36 @@ Proyecto de diseño e implementación de una arquitectura de alta disponibilidad
   * **S3 Cross-Region Replication (CRR):** Bucket réplica en `us-west-2` y configuración automática de la regla CRR e IAM Role sobre el bucket primario.
 * **Cómputo en Modo Warm Standby:** ALB secundario activo y Auto Scaling Group configurado en reposo (`min=0, desired=0, max=4`) para optimización de costos hasta que ocurra un evento DR.
 
-### Fase 3: Enrutamiento Global, Automatización SRE y Runbook
+### Fase 3: Enrutamiento Global, Automatización SRE y Pruebas de Carga con Locust
 * **Route 53 Failover DNS (`route53_failover`):** Health Checks HTTP cada **10 segundos** sobre `GET /health` (`failure_threshold = 3`, detección en 30 segundos) y registros Alias `PRIMARY` (`us-east-1`) y `SECONDARY` (`us-west-2`).
 * **AWS CloudFront Multi-Región (`global`):** Distribución global con **Origin Group Failover** que conmuta automáticamente al ALB secundario ante errores `500, 502, 503, 504`.
 * **Automatización de Failover (`automation/failover_trigger.py`):** Script Boto3 que autodescubre el ASG secundario, promueve la Read Replica de RDS a *Standalone Writer* (`promote_read_replica`), escala el ASG de `0` a `2` instancias EC2 y calcula en vivo el **RTO total alcanzado (< 15 min)**.
-* **CI/CD Multi-Entorno (`.github/workflows/terraform.yml`):** Valida formato y sintaxis de las 3 fases en cada push/PR y ejecuta `terraform apply` secuencialmente (`primary` $\rightarrow$ `secondary` $\rightarrow$ `global`) al integrarse en `main`.
+* **Ingeniería de Caos y Pruebas de Carga (`tests/locustfile.py` y `tests/simulate_dr_end_to_end.py`):** Simulación de concurrencia masiva con **Locust**, inyección de caída en `us-east-1`, disparo automático de Failover hacia `us-west-2` y verificación matemática de **RPO (0% pérdida de datos)** y **RTO (< 15 min)** con generación de dashboard HTML en [`docs/locust_dr_report.html`](docs/locust_dr_report.html).
 
 ---
 
-## Ejecución Local de la API para Pruebas
+## Pruebas de Carga y Simulación de Caída Regional con Locust (Para Demostración)
+
+### 1. Simulación Automática End-to-End (Carga + Caos + Failover + Reporte HTML)
+Ejecuta en un solo comando el escenario completo (tráfico concurrente en `us-east-1` $\rightarrow$ caída por sobrecarga $\rightarrow$ detección Route 53 $\rightarrow$ promoción de RDS y escalado de ASG en `us-west-2` $\rightarrow$ auditoría RPO/RTO):
+
+```bash
+pip install -r tests/requirements.txt
+python tests/simulate_dr_end_to_end.py
+```
+
+Al finalizar, abre [`docs/locust_dr_report.html`](docs/locust_dr_report.html) en el navegador para visualizar las gráficas de RPS, percentiles de latencia y la ventana exacta de recuperación del Failover.
+
+### 2. Interfaz Web Interactiva de Locust (Dashboard en Vivo)
+Para controlar el número de usuarios concurrentes y la tasa de subida desde el navegador en `http://localhost:8089`:
+
+```bash
+locust -f tests/locustfile.py --host http://localhost:8000
+```
+
+---
+
+## Ejecución Local de la API con Docker Compose
 
 El entorno local incluye **MySQL 8.0** y **LocalStack (S3 + DynamoDB)** para validar los 6 endpoints sin costos de infraestructura:
 
@@ -121,17 +146,9 @@ python tests/test_api_connection.py --url http://localhost:8000
 
 La documentación interactiva OpenAPI (Swagger UI) estará disponible en `http://localhost:8000/docs`.
 
-### Endpoints Principales:
-* `GET /health`: Health Check ligero e inmediato para Route 53 / ALB.
-* `GET /readiness`: Chequeo profundo de conectividad hacia RDS MySQL, DynamoDB y S3.
-* `POST /transaction`: Registra una transacción financiera en RDS MySQL.
-* `GET /transactions/latest`: Consulta las últimas transacciones para auditoría de RPO.
-* `POST /cart` y `GET /cart/{user_id}`: Gestiona carritos de compra en DynamoDB Global Tables.
-* `POST /invoice` y `GET /invoice/{invoice_id}`: Sube y verifica comprobantes digitales en S3 (CRR).
-
 ---
 
-## Validación en AWS y Simulación de Desastre (Failover)
+## Validación en AWS Real
 
 1. **Validar conectividad y persistencia en Región Primaria (Fase 1):**
    ```bash

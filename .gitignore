@@ -11,7 +11,8 @@ tfplan
 crash.log
 crash.*.log
 
-# Ignorar caché y entornos de Python para Boto3/FastAPI
+# Ignorar caché y entornos de Python para Boto3/FastAPI/Locust
 __pycache__/
 *.py[cod]
+*.db
 .env
