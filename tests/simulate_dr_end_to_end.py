@@ -243,6 +243,36 @@ def build_multi_region_gateway(db_path: str) -> FastAPI:
             raise HTTPException(status_code=404, detail="Factura no encontrada")
         return bucket_store[invoice_id]
 
+    @gw.get("/chaos/fail")
+    def trigger_chaos_fail():
+        if CLUSTER_STATE["primary_healthy"]:
+            CLUSTER_STATE["primary_healthy"] = False
+            CLUSTER_STATE["primary_overloaded"] = True
+            CLUSTER_STATE["outage_injected_at"] = time.time()
+            print("\n" + "!" * 75)
+            print(" [CHAOS MANUAL /chaos/fail] Caída catastrófica inyectada en us-east-1")
+            print(" El endpoint /health responderá HTTP 503 para activar Route 53 Failover")
+            print("!" * 75)
+            return {"status": "Caída inyectada en us-east-1", "primary_healthy": False}
+        return {"status": "us-east-1 ya se encontraba caído", "primary_healthy": False}
+
+    @gw.get("/chaos/recover")
+    def trigger_chaos_recover():
+        CLUSTER_STATE["primary_healthy"] = True
+        CLUSTER_STATE["primary_overloaded"] = False
+        CLUSTER_STATE["overload_saturation_ticks"] = 0
+        return {"status": "us-east-1 recuperado", "primary_healthy": True}
+
+    @gw.get("/status")
+    def cluster_status():
+        return {
+            "active_region": CLUSTER_STATE["active_route53_region"],
+            "primary_healthy": CLUSTER_STATE["primary_healthy"],
+            "secondary_asg_desired": CLUSTER_STATE["secondary_asg_desired"],
+            "secondary_rds_is_replica": CLUSTER_STATE["secondary_rds_is_replica"],
+            "current_rps": len(CLUSTER_STATE["primary_request_times"]),
+        }
+
     return gw
 
 
@@ -295,17 +325,28 @@ def make_mock_aws_clients_for_failover():
     return rds_mock, asg_mock
 
 
-def route53_health_monitor_and_failover(gateway_url: str):
+def route53_health_monitor_and_failover(gateway_url: str, is_web_mode: bool = False):
     """
     Simula el monitoreo activo de Route 53 (cada 0.6s consulta el endpoint /health).
-    Cuando detecta fallos consecutivos en us-east-1 (por saturación real de Locust),
+    Cuando detecta fallos consecutivos en us-east-1 (por saturación real de Locust o /chaos/fail),
     ejecuta failover_trigger.py hacia us-west-2 bajo la estrategia Warm Standby.
     """
     consecutive_failures = 0
-    start_time = time.time()
+    last_telemetry_print = time.time()
 
     while not CLUSTER_STATE["failover_triggered"]:
         time.sleep(0.6)
+        now = time.time()
+
+        # Telemetría SRE periódica cada 3 segundos si hay tráfico activo
+        if now - last_telemetry_print >= 3.0:
+            last_telemetry_print = now
+            region = CLUSTER_STATE["active_route53_region"]
+            rps = len(CLUSTER_STATE["primary_request_times"]) if region == "us-east-1" else 0
+            if rps > 0:
+                health_str = "HEALTHY [OK]" if CLUSTER_STATE["primary_healthy"] else "UNHEALTHY (503)"
+                print(f" [SRE TELEMETRÍA] Región Activa: {region} | Tráfico: {rps} req/s | Límite: {CLUSTER_STATE['primary_capacity_limit_rps']} RPS | Estado: {health_str}")
+
         try:
             r = requests.get(f"{gateway_url}/health", timeout=1.2)
             if r.status_code == 200:
@@ -314,16 +355,6 @@ def route53_health_monitor_and_failover(gateway_url: str):
                 consecutive_failures += 1
         except Exception:
             consecutive_failures += 1
-
-        # Fallback de seguridad en modo caos o si el tráfico de prueba es muy bajo
-        elapsed = time.time() - start_time
-        if elapsed > 10.0 and CLUSTER_STATE["primary_healthy"]:
-            CLUSTER_STATE["primary_healthy"] = False
-            CLUSTER_STATE["primary_overloaded"] = True
-            CLUSTER_STATE["outage_injected_at"] = time.time()
-            print("\n" + "!" * 75)
-            print(" [CHAOS EVENT: UMBRAL DE CAPACIDAD ALCANZADO] us-east-1 entra en fallo")
-            print("!" * 75)
 
         # Si Route 53 detecta 3 fallos consecutivos en /health
         if consecutive_failures >= 3 and not CLUSTER_STATE["failover_triggered"]:
@@ -354,6 +385,7 @@ def route53_health_monitor_and_failover(gateway_url: str):
             rto = CLUSTER_STATE["failover_completed_at"] - CLUSTER_STATE["outage_injected_at"]
             print("*" * 75)
             print(f" [FAILOVER COMPLETADO] Tráfico global conmutado a us-west-2 en {rto:.2f}s")
+            print(" [SRE TELEMETRÍA] Región Activa: us-west-2 (Standby Promovido a Writer) | RDS: Standalone | EC2: 2 InService")
             print("*" * 75 + "\n")
             break
 
@@ -397,7 +429,11 @@ def main():
     time.sleep(1.5)
 
     # Iniciar hilo de monitoreo continuo de Route 53 y failover automático
-    monitor_thread = threading.Thread(target=route53_health_monitor_and_failover, args=(gateway_url,), daemon=True)
+    monitor_thread = threading.Thread(
+        target=route53_health_monitor_and_failover,
+        args=(gateway_url, args.web),
+        daemon=True,
+    )
     monitor_thread.start()
 
     if args.web:
@@ -413,10 +449,11 @@ def main():
             "8089",
         ]
         print("*" * 75)
-        print(" [MODO INTERACTIVO WEB ACTIVADO]")
+        print(" [MODO INTERACTIVO WEB ACTIVADO - 100% REACTIVO]")
         print(" • Abre tu navegador en: http://localhost:8089")
-        print(" • Puedes definir los usuarios que desees (ej: 50, 100, 200) y dar rienda suelta a la carga.")
-        print(" • Observa en tiempo real cómo us-east-1 se satura y Route 53 activa us-west-2.")
+        print(" • Prueba con pocos usuarios (ej: 5 a 15) -> Observa cómo us-east-1 procesa todo en verde.")
+        print(" • Dale rienda suelta (ej: 50 a 100 usuarios) -> us-east-1 se satura a >38 RPS y Route 53 conmuta a us-west-2.")
+        print(" • Si prefieres inducir la caída manual al instante: abre http://localhost:8088/chaos/fail")
         print(" • Presiona Ctrl+C en esta terminal para detener la prueba cuando termines.")
         print("*" * 75 + "\n")
         try:
