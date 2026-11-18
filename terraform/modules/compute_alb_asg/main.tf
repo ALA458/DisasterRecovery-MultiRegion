@@ -1,3 +1,5 @@
+data "aws_caller_identity" "current" {}
+
 data "aws_ami" "amazon_linux_2023" {
   most_recent = true
   owners      = ["amazon"]
@@ -170,9 +172,15 @@ resource "aws_iam_role_policy_attachment" "ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+# Lectura de imágenes desde ECR (docker pull de la API)
+resource "aws_iam_role_policy_attachment" "ecr_read" {
+  role       = aws_iam_role.ec2.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+}
+
 resource "aws_iam_policy" "app_permissions" {
   name        = "${var.project_name}-${var.environment}-app-policy"
-  description = "Permisos para interactuar con DynamoDB y S3 desde la API"
+  description = "Permisos para DynamoDB, S3 y lectura del secreto de RDS en SSM"
 
   policy = jsonencode({
     Version = "2012-10-17"
@@ -186,6 +194,11 @@ resource "aws_iam_policy" "app_permissions" {
           "dynamodb:DescribeTable"
         ]
         Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["ssm:GetParameter"]
+        Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter${var.db_pass_ssm_parameter}"
       },
       {
         Effect = "Allow"
@@ -232,39 +245,38 @@ resource "aws_launch_template" "this" {
               #!/bin/bash
               set -ex
 
-              # 1. Actualizar e instalar dependencias base
-              dnf update -y
-              dnf install -y docker git
-              systemctl start docker
-              systemctl enable docker
-              usermod -a -G docker ec2-user
+              # 1. Docker. Sin "dnf update": la AMI AL2023 se resuelve a la más reciente en cada apply,
+              #    y actualizar paquetes al arrancar alarga el failover (RTO).
+              dnf install -y docker
+              systemctl enable --now docker
 
-              # 2. Descargar código fuente de la aplicación
-              mkdir -p /opt/app
-              cd /opt/app
-              git clone https://github.com/JoelGonzalez08/DisasterRecovery-MultiRegion.git repo || true
+              # 2. Descargar la imagen ya construida desde ECR de ESTA región (sin build en la instancia).
+              #    Reintenta ~10 min por si la imagen aún no existe o no terminó de replicarse.
+              for i in $(seq 1 30); do
+                aws ecr get-login-password --region ${var.aws_region} \
+                  | docker login --username AWS --password-stdin ${split("/", var.app_image)[0]} \
+                  && docker pull ${var.app_image} && break
+                echo "docker pull falló (intento $i), reintentando en 20 s"
+                sleep 20
+              done
+              docker image inspect ${var.app_image} > /dev/null
 
-              if [ -d "/opt/app/repo/api" ]; then
-                cd /opt/app/repo/api
-              else
-                # Fallback de seguridad: crear estructura mínima si git falla temporalmente
-                mkdir -p /opt/app/fallback
-                cd /opt/app/fallback
-              fi
-
-              # 3. Construir imagen y levantar contenedor transaccional
-              docker build -t dr-api . || true
+              # 3. Leer la contraseña desde SSM y levantar el contenedor.
+              #    set +x evita que la contraseña quede en /var/log/cloud-init-output.log
+              set +x
+              DB_PASS=$(aws ssm get-parameter --name "${var.db_pass_ssm_parameter}" --with-decryption --query Parameter.Value --output text --region ${var.aws_region})
               docker run -d --restart always \
                 -p ${var.app_port}:8000 \
                 -e DB_HOST="${var.db_host}" \
                 -e DB_PORT="${var.db_port}" \
                 -e DB_USER="${var.db_user}" \
-                -e DB_PASS="${var.db_pass}" \
+                -e DB_PASS="$DB_PASS" \
                 -e DB_NAME="${var.db_name}" \
                 -e DYNAMO_TABLE="${var.dynamo_table}" \
                 -e S3_BUCKET="${var.s3_bucket}" \
                 -e AWS_REGION="${var.aws_region}" \
-                --name dr-api-service dr-api
+                --name dr-api-service ${var.app_image}
+              set -x
               EOF
   )
 

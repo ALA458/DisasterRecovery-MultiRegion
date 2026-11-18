@@ -77,10 +77,14 @@ variable "db_user" {
   default     = "admin"
 }
 
-variable "db_pass" {
-  description = "Contraseña de la base de datos MySQL"
+variable "db_pass_ssm_parameter" {
+  description = "Nombre del parámetro SecureString de SSM con la contraseña de MySQL (las EC2 lo leen al arrancar)"
   type        = string
-  sensitive   = true
+}
+
+variable "app_image" {
+  description = "URI completa de la imagen de la API en ECR de la región (ej. 123456789012.dkr.ecr.us-east-1.amazonaws.com/dr-api:latest)"
+  type        = string
 }
 
 variable "db_name" {

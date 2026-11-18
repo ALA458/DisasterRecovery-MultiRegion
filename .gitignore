@@ -13,3 +13,7 @@ crash.*.log
 __pycache__/
 *.py[cod]
 .env
+
+# Planes de Terraform (guardan valores de variables, incluidos secretos)
+tfplan
+*.tfplan

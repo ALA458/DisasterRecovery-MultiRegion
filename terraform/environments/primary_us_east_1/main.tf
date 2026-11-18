@@ -79,6 +79,58 @@ resource "aws_dynamodb_table" "user_sessions" {
   }
 }
 
+# Registro de la imagen de la API (se construye una vez y se replica a la región DR)
+resource "aws_ecr_repository" "api" {
+  name                 = "dr-api"
+  image_tag_mutability = "MUTABLE"
+  force_delete         = true
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
+# Conservar solo las 10 imágenes más recientes (controla costo de almacenamiento)
+resource "aws_ecr_lifecycle_policy" "api" {
+  repository = aws_ecr_repository.api.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Mantener las 10 imagenes mas recientes"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 10
+      }
+      action = { type = "expire" }
+    }]
+  })
+}
+
+# Replicación a nivel de cuenta: cada push en us-east-1 se copia a la región DR.
+# El repositorio réplica en us-west-2 lo crea AWS (no lo gestiona Terraform).
+data "aws_caller_identity" "current" {}
+
+resource "aws_ecr_replication_configuration" "this" {
+  replication_configuration {
+    rule {
+      destination {
+        region      = var.dr_region
+        registry_id = data.aws_caller_identity.current.account_id
+      }
+    }
+  }
+}
+
+# Contraseña de RDS como SecureString en SSM: las EC2 la leen al arrancar (no viaja en el user_data)
+resource "aws_ssm_parameter" "db_password" {
+  name        = "/${var.project_name}/${var.environment}/db_password"
+  description = "Contraseña maestra de RDS MySQL"
+  type        = "SecureString"
+  value       = var.db_password
+}
+
 # 4. Base de Datos Relacional RDS MySQL (Multi-AZ Primario Writer)
 module "database_rds" {
   source = "../../modules/database_rds"
@@ -122,11 +174,13 @@ module "compute_alb_asg" {
   db_host      = module.database_rds.db_address
   db_port      = module.database_rds.db_port
   db_user      = var.db_username
-  db_pass      = var.db_password
   db_name      = "transactions_db"
   dynamo_table = aws_dynamodb_table.user_sessions.name
   s3_bucket    = module.storage_s3.bucket_name
   aws_region   = var.aws_region
+
+  db_pass_ssm_parameter = aws_ssm_parameter.db_password.name
+  app_image             = "${aws_ecr_repository.api.repository_url}:${var.app_image_tag}"
 
   tags = {
     Region = var.aws_region
