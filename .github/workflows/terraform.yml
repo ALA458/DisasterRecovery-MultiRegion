@@ -2,9 +2,11 @@ name: 'Terraform CI/CD - Infraestructura DR'
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "region2" ]
   pull_request:
     branches: [ "main" ]
+  # El despliegue (apply) solo corre al lanzarlo a mano: Actions -> este workflow -> Run workflow
+  workflow_dispatch:
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -15,7 +17,7 @@ env:
 
 jobs:
   validate:
-    name: 'Terraform Format & Lint'
+    name: 'Terraform Format & Static Validation'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout del repositorio
@@ -29,9 +31,28 @@ jobs:
       - name: Verificar Formato (Recursivo)
         run: terraform fmt -check -recursive ./terraform
 
+      - name: Validar Fase 1 - Primary (us-east-1)
+        working-directory: ./terraform/environments/primary_us_east_1
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Validar Fase 2 - Secondary Warm Standby (us-west-2)
+        working-directory: ./terraform/environments/secondary_us_west_2
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Validar Fase 3 - Global (Route 53 & CloudFront)
+        working-directory: ./terraform/environments/global
+        run: |
+          terraform init -backend=false
+          terraform validate
+
   terraform-primary:
     name: 'Terraform Plan & Apply - Primary (us-east-1)'
     needs: [validate]
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -53,10 +74,67 @@ jobs:
         run: terraform validate
 
       - name: Terraform Plan
-        id: plan
-        if: github.event_name == 'pull_request'
         run: terraform plan -no-color
 
       - name: Terraform Apply
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: terraform apply -auto-approve
+
+  terraform-secondary:
+    name: 'Terraform Plan & Apply - Secondary Warm Standby (us-west-2)'
+    needs: [terraform-primary]
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./terraform/environments/secondary_us_west_2
+
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -no-color
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve
+
+  terraform-global:
+    name: 'Terraform Plan & Apply - Global (Route 53 & CloudFront)'
+    needs: [terraform-secondary]
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./terraform/environments/global
+
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -no-color
+
+      - name: Terraform Apply
         run: terraform apply -auto-approve

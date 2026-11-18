@@ -77,6 +77,13 @@ resource "aws_dynamodb_table" "user_sessions" {
     Environment = var.environment
     Region      = var.aws_region
   }
+
+  # Permite que el entorno secondary_us_west_2 gestione su propia réplica de Global Table sin conflicto
+  lifecycle {
+    ignore_changes = [
+      replica
+    ]
+  }
 }
 
 # Registro de la imagen de la API (se construye una vez y se replica a la región DR)

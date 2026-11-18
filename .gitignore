@@ -1,19 +1,18 @@
 # Ignorar directorios locales de inicialización
 **/.terraform/*
 
-# Ignorar archivos de estado de Terraform (Evita fugas de información)
+# Ignorar archivos de estado y planes compilados de Terraform (Evita fugas de información)
 *.tfstate
 *.tfstate.*
+*.tfplan
+tfplan
 
 # Ignorar logs de errores
 crash.log
 crash.*.log
 
-# Ignorar caché y entornos de Python para Boto3/FastAPI
+# Ignorar caché y entornos de Python para Boto3/FastAPI/Locust
 __pycache__/
 *.py[cod]
+*.db
 .env
-
-# Planes de Terraform (guardan valores de variables, incluidos secretos)
-tfplan
-*.tfplan
