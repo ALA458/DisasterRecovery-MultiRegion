@@ -109,21 +109,21 @@ def on_startup():
 # Esquemas Pydantic para Validación de Datos
 # --------------------------------------------------------------------------
 class TransactionCreate(BaseModel):
-    user_id: str = Field(default="usr-1001", description="Identificador del usuario")
+    user_id: str = Field(..., min_length=1, description="Identificador del usuario")
     amount: float = Field(default=99.99, gt=0, description="Monto de la transacción")
     description: str = Field(default="Pago orden de compra", description="Detalle")
 
 
 class CartItem(BaseModel):
-    user_id: str = Field(default="usr-1001", description="ID del usuario")
-    item: str = Field(default="SKU-994", description="Identificador del producto")
+    user_id: str = Field(..., min_length=1, description="ID del usuario")
+    item: str = Field(..., min_length=1, description="Identificador del producto")
     quantity: int = Field(default=1, ge=1, description="Cantidad agregada al carrito")
 
 
 class InvoiceCreate(BaseModel):
     invoice_id: Optional[str] = Field(default=None, description="Número de factura opcional")
-    customer_name: str = Field(default="Cliente Corporativo", description="Nombre del cliente")
-    amount: float = Field(default=150.00, description="Total facturado")
+    customer_name: str = Field(default="Cliente Corporativo", min_length=1, description="Nombre del cliente")
+    amount: float = Field(default=150.00, gt=0, description="Total facturado")
 
 
 # --------------------------------------------------------------------------
