@@ -60,6 +60,7 @@ class DisasterRecoveryUser(HttpUser):
                 if DR_METRICS["primary_was_active"] and not DR_METRICS["secondary_became_active"]:
                     DR_METRICS["secondary_became_active"] = True
                     DR_METRICS["failover_recovery_ts"] = time.time()
+                    print("\n >>> [LOCUST VIRTUAL USERS] Tráfico conmutado exitosamente a US-WEST-2 (Warm Standby Activo) <<< \n")
         else:
             DR_METRICS["regions_seen"]["other"] += 1
 

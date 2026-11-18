@@ -462,7 +462,7 @@ def main():
             print("\nDeteniendo servidor de pruebas...")
         return
 
-    # Modo Headless por defecto (Rampa incremental de usuarios)
+    # Modo Headless por defecto (Rampa incremental de usuarios con streaming en vivo)
     locust_cmd = [
         sys.executable,
         "-m",
@@ -482,7 +482,6 @@ def main():
         report_html,
         "--exit-code-on-error",
         "0",
-        "--only-summary",
     ]
 
     print(f">>> Iniciando rampa incremental de Locust: 1 -> {args.users} usuarios (tasa: {args.spawn_rate}/s, tiempo: {args.run_time})...\n")
