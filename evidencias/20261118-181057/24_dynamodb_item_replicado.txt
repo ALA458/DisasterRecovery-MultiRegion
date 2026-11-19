@@ -1,0 +1,41 @@
+﻿# 24_dynamodb_item_replicado
+# Fecha: 2026-11-18T18:13:13.4179501-05:00
+# Comando:
+$uid = "evidencia-$stamp"
+  J (Invoke-RestMethod -Method Post "http://$P/cart" -ContentType "application/json" -Body ("{""user_id"":""$uid"",""item"":""SKU-EVID"",""quantity"":2}"))
+  Start-Sleep 5
+  $keyFile = Join-Path $env:TEMP "dr_key.json"
+  [IO.File]::WriteAllText($keyFile, "{""user_id"":{""S"":""$uid""}}")
+  "Lectura del mismo item en us-west-2:"
+  aws dynamodb get-item --table-name user_sessions --region $R2 --key "file://$keyFile"
+
+# Resultado:
+{
+    "status":  "Carrito actualizado",
+    "user_id":  "evidencia-20261118-181057",
+    "item":  "SKU-EVID",
+    "quantity":  2,
+    "updated_at":  "2026-11-18T23:13:13.802164+00:00",
+    "region":  "us-east-1"
+}
+Lectura del mismo item en us-west-2:
+{
+    "Item": {
+        "updated_at": {
+            "S": "2026-11-18T23:13:13.802164+00:00"
+        },
+        "quantity": {
+            "N": "2"
+        },
+        "user_id": {
+            "S": "evidencia-20261118-181057"
+        },
+        "item": {
+            "S": "SKU-EVID"
+        },
+        "region": {
+            "S": "us-east-1"
+        }
+    }
+}
+

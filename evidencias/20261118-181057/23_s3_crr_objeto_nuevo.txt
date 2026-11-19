@@ -1,0 +1,22 @@
+﻿# 23_s3_crr_objeto_nuevo
+# Fecha: 2026-11-18T18:12:27.3948493-05:00
+# Comando:
+$inv = Invoke-RestMethod -Method Post "http://$P/invoice" -ContentType "application/json" -Body '{"customer_name":"Evidencia CRR"}'
+  "Objeto subido a us-east-1: $($inv.s3_key)"
+  Start-Sleep 30
+  "Estado de replicacion en el bucket origen ($B1):"
+  aws s3api head-object --bucket $B1 --key $inv.s3_key --query ReplicationStatus
+  "Objeto presente en el bucket replica ($B2, us-west-2):"
+  aws s3api head-object --bucket $B2 --key $inv.s3_key --region $R2 --query "{Tamano:ContentLength,Estado:ReplicationStatus,Modificado:LastModified}"
+
+# Resultado:
+Objeto subido a us-east-1: invoices/INV-1C3AE190.txt
+Estado de replicacion en el bucket origen (dr-invoices-utb-01bcb738):
+"COMPLETED"
+Objeto presente en el bucket replica (dr-invoices-utb-replica-45e892fa, us-west-2):
+{
+    "Tamano": 136,
+    "Estado": "REPLICA",
+    "Modificado": "2026-11-18T23:12:28+00:00"
+}
+

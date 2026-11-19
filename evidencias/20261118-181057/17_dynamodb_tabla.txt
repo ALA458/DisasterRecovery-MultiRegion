@@ -1,0 +1,20 @@
+﻿# 17_dynamodb_tabla
+# Fecha: 2026-11-18T18:12:14.3798893-05:00
+# Comando:
+aws dynamodb describe-table --table-name user_sessions --region $R1 --query "Table.{Estado:TableStatus,Stream:StreamSpecification,Replicas:Replicas[].{Region:RegionName,Estado:ReplicaStatus}}"
+
+# Resultado:
+{
+    "Estado": "ACTIVE",
+    "Stream": {
+        "StreamEnabled": true,
+        "StreamViewType": "NEW_AND_OLD_IMAGES"
+    },
+    "Replicas": [
+        {
+            "Region": "us-west-2",
+            "Estado": "ACTIVE"
+        }
+    ]
+}
+

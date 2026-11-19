@@ -1,0 +1,13 @@
+﻿REPORTE DE MÉTRICAS DE REPLICACIÓN (estado Warm Standby, bajo carga)
+Ventana de carga (UTC): 2026-11-19T00:38:19Z -> 2026-11-19T00:40:29Z
+Carga aplicada        : 1 escritura/s en /transaction (78 OK, 0 fallas)
+
+RDS ReplicaLag bajo carga (CloudWatch)        : 0,00 s promedio / 0,00 s máximo (5 puntos de 1 min)
+S3 CRR - latencia hasta verse en us-west-2     : 23,63 s promedio (min 22,81 s, max 24,70 s, n=5)
+S3 CRR replicado                               : Sí, todas las muestras
+DynamoDB Global Tables - visible en us-west-2  : 2,34 s promedio (min 1,93 s, max 2,64 s, n=5)
+DynamoDB ReplicationLatency (CloudWatch)       : sin datos
+
+Nota de método: las latencias S3/DynamoDB son COTA SUPERIOR: incluyen la llamada a la API y el
+tiempo de cada consulta de la AWS CLI (~0.5-1.5 s en Windows). La métrica ReplicationLatency de
+CloudWatch es la medida interna de AWS y es más precisa para DynamoDB.

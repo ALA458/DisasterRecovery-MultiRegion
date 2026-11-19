@@ -1,0 +1,10 @@
+﻿# 16_s3_versionado
+# Fecha: 2026-11-18T18:12:12.7469539-05:00
+# Comando:
+aws s3api get-bucket-versioning --bucket $B1
+
+# Resultado:
+{
+    "Status": "Enabled"
+}
+

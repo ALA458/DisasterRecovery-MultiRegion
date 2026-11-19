@@ -1,0 +1,12 @@
+﻿# 00_identidad_cuenta
+# Fecha: 2026-11-18T18:11:19.2741084-05:00
+# Comando:
+aws sts get-caller-identity
+
+# Resultado:
+{
+    "UserId": "AIDAYEKP5Y4PRNH32CKWJ",
+    "Account": "559050245919",
+    "Arn": "arn:aws:iam::559050245919:user/dr-admin"
+}
+

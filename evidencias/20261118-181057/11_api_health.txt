@@ -1,0 +1,12 @@
+﻿# 11_api_health
+# Fecha: 2026-11-18T18:12:08.6498260-05:00
+# Comando:
+J (Invoke-RestMethod "http://$P/health")
+
+# Resultado:
+{
+    "status":  "healthy",
+    "region":  "us-east-1",
+    "timestamp":  "2026-11-18T23:12:09.493938+00:00"
+}
+

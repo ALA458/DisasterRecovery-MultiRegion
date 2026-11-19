@@ -1,0 +1,17 @@
+﻿# 15_rds_primaria
+# Fecha: 2026-11-18T18:12:10.8821478-05:00
+# Comando:
+aws rds describe-db-instances --db-instance-identifier dr-architecture-primary-mysql --region $R1 --query "DBInstances[0].{Estado:DBInstanceStatus,MultiAZ:MultiAZ,Motor:Engine,Version:EngineVersion,Replicas:ReadReplicaDBInstanceIdentifiers,Backups:BackupRetentionPeriod}"
+
+# Resultado:
+{
+    "Estado": "available",
+    "MultiAZ": true,
+    "Motor": "mysql",
+    "Version": "8.0.46-rds.20260908",
+    "Replicas": [
+        "arn:aws:rds:us-west-2:559050245919:db:dr-architecture-secondary-mysql"
+    ],
+    "Backups": 7
+}
+

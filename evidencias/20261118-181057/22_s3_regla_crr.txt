@@ -1,0 +1,27 @@
+﻿# 22_s3_regla_crr
+# Fecha: 2026-11-18T18:12:25.7537240-05:00
+# Comando:
+aws s3api get-bucket-replication --bucket $B1
+
+# Resultado:
+{
+    "ReplicationConfiguration": {
+        "Role": "arn:aws:iam::559050245919:role/dr-architecture-s3-crr-role",
+        "Rules": [
+            {
+                "ID": "crr-primary-to-secondary-invoices",
+                "Priority": 0,
+                "Filter": {},
+                "Status": "Enabled",
+                "Destination": {
+                    "Bucket": "arn:aws:s3:::dr-invoices-utb-replica-45e892fa",
+                    "StorageClass": "STANDARD"
+                },
+                "DeleteMarkerReplication": {
+                    "Status": "Enabled"
+                }
+            }
+        ]
+    }
+}
+

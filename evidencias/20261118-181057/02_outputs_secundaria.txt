@@ -1,0 +1,19 @@
+﻿# 02_outputs_secundaria
+# Fecha: 2026-11-18T18:11:46.4018678-05:00
+# Comando:
+terraform "-chdir=$tfS" output
+
+# Resultado:
+alb_arn = "arn:aws:elasticloadbalancing:us-west-2:559050245919:loadbalancer/app/dr-architecture-secondary-alb/af9c01e76dea6368"
+alb_dns_name = "dr-architecture-secondary-alb-2027017774.us-west-2.elb.amazonaws.com"
+alb_zone_id = "Z1H1FL5HABSF5"
+asg_name = "dr-architecture-secondary-asg-2026111822562346190000000b"
+dynamodb_replica_arn = "arn:aws:dynamodb:us-west-2:559050245919:table/user_sessions"
+dynamodb_table_name = "user_sessions"
+rds_arn = "arn:aws:rds:us-west-2:559050245919:db:dr-architecture-secondary-mysql"
+rds_endpoint = "dr-architecture-secondary-mysql.c1yeyeaiy9d0.us-west-2.rds.amazonaws.com:3306"
+rds_instance_id = "db-JO2AVGISZWZDPACSVSMQWPS73I"
+s3_replica_bucket_arn = "arn:aws:s3:::dr-invoices-utb-replica-45e892fa"
+s3_replica_bucket_name = "dr-invoices-utb-replica-45e892fa"
+vpc_id = "vpc-0f9d2c00f8ae96732"
+

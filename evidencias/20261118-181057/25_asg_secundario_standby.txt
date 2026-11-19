@@ -1,0 +1,13 @@
+﻿# 25_asg_secundario_standby
+# Fecha: 2026-11-18T18:13:21.7121671-05:00
+# Comando:
+aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names $ASG2 --region $R2 --query "AutoScalingGroups[0].{Min:MinSize,Deseado:DesiredCapacity,Max:MaxSize,InstanciasCorriendo:length(Instances)}"
+
+# Resultado:
+{
+    "Min": 0,
+    "Deseado": 0,
+    "Max": 4,
+    "InstanciasCorriendo": 0
+}
+

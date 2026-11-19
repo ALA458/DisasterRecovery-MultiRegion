@@ -1,0 +1,15 @@
+﻿# 10_targets_alb_primario
+# Fecha: 2026-11-18T18:12:06.7990364-05:00
+# Comando:
+aws elbv2 describe-target-health --target-group-arn $TG1 --region $R1 --query "TargetHealthDescriptions[].{Instancia:Target.Id,Estado:TargetHealth.State}" --output table
+
+# Resultado:
+------------------------------------
+|       DescribeTargetHealth       |
++----------+-----------------------+
+|  Estado  |       Instancia       |
++----------+-----------------------+
+|  healthy |  i-0ff8d3f811ff185fa  |
+|  healthy |  i-01a706d4c5674acdb  |
++----------+-----------------------+
+
