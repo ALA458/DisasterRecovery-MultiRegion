@@ -1,0 +1,6 @@
+﻿REPORTE ESCENARIO B: FALLA DE LA BASE DE DATOS PRIMARIA (failover Multi-AZ)
+Falla inyectada (UTC) : 2026-11-19T00:48:02.3963145Z  [aws rds reboot-db-instance --force-failover]
+Zona antes / después  : us-east-1a -> us-east-1a
+RTO de escritura      : 21 s (de la falla a la primera escritura OK posterior)
+Escrituras fallidas   : 5 de 64 intentos desde la falla
+Nota: la recuperación es dentro de la región (Multi-AZ); no requiere failover regional.

@@ -57,3 +57,8 @@ output "vpc_id" {
   description = "ID de la VPC primaria"
   value       = module.vpc.vpc_id
 }
+
+output "ecr_repository_url" {
+  description = "URL del repositorio ECR de la API (destino del docker push)"
+  value       = aws_ecr_repository.api.repository_url
+}

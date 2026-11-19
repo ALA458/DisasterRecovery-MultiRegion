@@ -1,0 +1,11 @@
+﻿# 26_alb_secundario_listo
+# Fecha: 2026-11-18T18:13:23.4088835-05:00
+# Comando:
+aws elbv2 describe-load-balancers --names dr-architecture-secondary-alb --region $R2 --query "LoadBalancers[0].{DNS:DNSName,Estado:State.Code}"
+
+# Resultado:
+{
+    "DNS": "dr-architecture-secondary-alb-2027017774.us-west-2.elb.amazonaws.com",
+    "Estado": "active"
+}
+

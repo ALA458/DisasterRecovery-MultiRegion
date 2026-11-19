@@ -1,0 +1,13 @@
+﻿# 12_api_readiness
+# Fecha: 2026-11-18T18:12:09.4838701-05:00
+# Comando:
+J (Invoke-RestMethod "http://$P/readiness")
+
+# Resultado:
+{
+    "region":  "us-east-1",
+    "rds_mysql":  "connected",
+    "dynamodb":  "connected",
+    "s3":  "connected"
+}
+

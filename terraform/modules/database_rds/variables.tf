@@ -49,10 +49,10 @@ variable "db_username" {
 }
 
 variable "db_password" {
-  description = "Contraseña maestra de la base de datos"
+  description = "Contraseña maestra de la base de datos (null en Read Replicas: la heredan de la fuente)"
   type        = string
   sensitive   = true
-  default     = "PasswordSeguraDR2026!"
+  default     = null
 }
 
 variable "multi_az" {

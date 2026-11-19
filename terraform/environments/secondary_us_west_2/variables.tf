@@ -25,7 +25,7 @@ variable "environment" {
 variable "state_bucket" {
   description = "Bucket S3 donde se almacena el estado remoto de Terraform"
   type        = string
-  default     = "dr-proyecto-terraform-state-utb"
+  default     = "dr-tfstate-559050245919"
 }
 
 variable "primary_state_key" {
@@ -41,10 +41,15 @@ variable "db_username" {
 }
 
 variable "db_password" {
-  description = "Contraseña de la base de datos RDS MySQL"
+  description = "Contraseña de RDS (la MISMA de la primaria: la réplica la hereda). Pasarla con TF_VAR_db_password"
   type        = string
   sensitive   = true
-  default     = "PasswordSeguraDR2026!"
+}
+
+variable "app_image_tag" {
+  description = "Tag de la imagen de la API en el ECR réplica de us-west-2"
+  type        = string
+  default     = "latest"
 }
 
 variable "s3_bucket_prefix" {

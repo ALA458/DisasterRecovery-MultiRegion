@@ -23,14 +23,25 @@ variable "db_username" {
 }
 
 variable "db_password" {
-  description = "Contraseña de la base de datos RDS MySQL"
+  description = "Contraseña de RDS MySQL. Sin default: pasarla con TF_VAR_db_password (8-41 caracteres, sin / @ \" ni espacios)"
   type        = string
   sensitive   = true
-  default     = "PasswordSeguraDR2026!"
 }
 
 variable "s3_bucket_prefix" {
   description = "Prefijo para el bucket S3 de comprobantes"
   type        = string
   default     = "dr-invoices-utb"
+}
+
+variable "app_image_tag" {
+  description = "Tag de la imagen de la API en ECR que despliegan las EC2"
+  type        = string
+  default     = "latest"
+}
+
+variable "dr_region" {
+  description = "Región secundaria (destino de la replicación de ECR)"
+  type        = string
+  default     = "us-west-2"
 }

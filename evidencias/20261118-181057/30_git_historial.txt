@@ -1,0 +1,27 @@
+﻿# 30_git_historial
+# Fecha: 2026-11-18T18:13:25.0709577-05:00
+# Comando:
+git -C $root log --oneline -20
+
+# Resultado:
+9a69220 merge: integra fase 2/3 de main con ECR, SSM y backend propio; apply manual en CI
+ef2451a fix: secreto en SSM, imagen desde ECR, backend propio
+2362cd2 Merge pull request #1 from ALA458/region2
+21cced9 test para comprobar que la configuraci├│n de la infrstructura y sus recursos est├ín bien planteadas en el terraform
+ad0f376 Test de validaci├│n de los checkpoints de la api. Chequea si funciona como se esperaba dentro del sistema. Lo hace simulando tres servicios AWS: SQLite database DynamoDB mock S3 mock Si bien el test prueba que la API se comporta debidamente no se puede decir que que si funciona en el test funcionar├í de igual modo en el ambiente de producci├│n desplegado.
+3564df1 feat(dr-simulation): structure execution into 5 explicit use cases with detailed forensic RPO audit
+ad13b7b feat(locust): enable real-time streaming stats tables and live failover notifications
+92bac85 feat(tests): add fast end-to-end verification script for LocalStack and multi-region failover flow
+ce7f03f docs: update locust dr html report with latest reactive test results
+f4a211a fix: make web mode strictly reactive, remove premature timeout, add periodic SRE telemetry and manual chaos endpoints
+1772b6e feat: authentic traffic-driven saturation failover with Locust ramp-up and web UI support
+73df33e chore: add pymysql and cryptography to tests requirements
+b56858c docs: remove architecture diagram section from README and focus on system functionalities
+28ca711 docs: rewrite README with pure technical architecture and system explanation
+4558222 docs: consolidate complete technical documentation into README.md and clean up deliverables
+fd1193e docs: add comprehensive final project document covering all 4 deliverables, architecture diagrams, SLA audit and Locust results
+05126c1 feat(tests): integrate Locust load & chaos testing suite for E2E SLA (RTO/RPO) validation
+70d70ee docs: update README with full Phase 1-3 architecture and refine CI/CD PR validation
+98bcc58 feat: implement Phase 2 (us-west-2 Warm Standby & Cross-Region Replication) and Phase 3 (Route53/CloudFront failover, SRE automation & runbook)
+0582010 Add initial end-to-end validation script for AWS services connectivity
+

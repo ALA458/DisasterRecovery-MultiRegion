@@ -13,7 +13,7 @@ variable "project_name" {
 variable "state_bucket" {
   description = "Bucket S3 donde se almacena el estado remoto de Terraform"
   type        = string
-  default     = "dr-proyecto-terraform-state-utb"
+  default     = "dr-tfstate-559050245919"
 }
 
 variable "primary_state_key" {

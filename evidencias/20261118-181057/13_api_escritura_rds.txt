@@ -1,0 +1,15 @@
+﻿# 13_api_escritura_rds
+# Fecha: 2026-11-18T18:12:09.9742524-05:00
+# Comando:
+J (Invoke-RestMethod -Method Post "http://$P/transaction" -ContentType "application/json" -Body '{"user_id":"evidencia","description":"prueba evidencias"}')
+
+# Resultado:
+{
+    "status":  "TransacciÃ³n financiera registrada",
+    "transaction_id":  "c5c595f5-6892-439b-abfb-80979cb0aee3",
+    "user_id":  "evidencia",
+    "amount":  99.99,
+    "created_at":  "2026-11-18T23:12:11",
+    "region":  "us-east-1"
+}
+

@@ -189,6 +189,17 @@ resource "aws_dynamodb_table_replica" "user_sessions" {
   }
 }
 
+# Contraseña en SSM de us-west-2: las EC2 de standby la leen al arrancar tras el failover
+resource "aws_ssm_parameter" "db_password" {
+  name        = "/${var.project_name}/${var.environment}/db_password"
+  description = "Contraseña maestra de RDS MySQL (heredada de la primaria)"
+  type        = "SecureString"
+  value       = var.db_password
+}
+
+# Repositorio réplica de ECR: lo crea la replicación configurada en la primaria
+data "aws_caller_identity" "current" {}
+
 # --------------------------------------------------------------------------
 # 4. Base de Datos Relacional RDS MySQL (Read Replica Cross-Region)
 # --------------------------------------------------------------------------
@@ -233,11 +244,13 @@ module "compute_alb_asg" {
   db_host      = module.database_rds.db_address
   db_port      = module.database_rds.db_port
   db_user      = var.db_username
-  db_pass      = var.db_password
   db_name      = "transactions_db"
   dynamo_table = data.terraform_remote_state.primary.outputs.dynamodb_table_name
   s3_bucket    = module.storage_s3.bucket_name
   aws_region   = var.aws_region
+
+  db_pass_ssm_parameter = aws_ssm_parameter.db_password.name
+  app_image             = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/dr-api:${var.app_image_tag}"
 
   tags = {
     Region = var.aws_region

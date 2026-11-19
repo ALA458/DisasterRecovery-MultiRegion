@@ -53,6 +53,34 @@ def promote_rds_replica(rds_client, db_identifier: str) -> bool:
         return False
 
 
+def enable_rds_backups(rds_client, db_identifier: str, retention_days: int = 7) -> bool:
+    """Activa backups automáticos en la base promovida (la réplica nace con retención 0).
+
+    Sin backups no se puede crear la réplica inversa us-west-2 -> us-east-1 que exige el failback.
+    Se ejecuta DESPUÉS de medir el RTO: según la documentación de RDS, pasar la retención de 0 a >0
+    provoca una interrupción breve de la instancia.
+    """
+    print(f"[POST] Activando backups automáticos ({retention_days} días) en '{db_identifier}'...")
+    try:
+        db = rds_client.describe_db_instances(DBInstanceIdentifier=db_identifier)["DBInstances"][0]
+        if db.get("ReadReplicaSourceDBInstanceIdentifier"):
+            print("      [ERROR] La instancia sigue siendo Read Replica; ejecute primero el failover.")
+            return False
+        if db.get("BackupRetentionPeriod", 0) > 0:
+            print(f"      [OK] Ya tiene backups activos ({db['BackupRetentionPeriod']} días).")
+            return True
+        rds_client.modify_db_instance(
+            DBInstanceIdentifier=db_identifier,
+            BackupRetentionPeriod=retention_days,
+            ApplyImmediately=True,
+        )
+        print("      [OK] Cambio enviado. RDS pasará por 'modifying'/'backing-up' unos minutos.")
+        return True
+    except ClientError as e:
+        print(f"      [ERROR] No se pudieron activar los backups: {e.response['Error']['Message']}")
+        return False
+
+
 def scale_up_asg(asg_client, asg_name: str, target_capacity: int, max_capacity: int = 4) -> bool:
     """Escala el Auto Scaling Group secundario desde Warm Standby (0) hasta capacidad productiva."""
     print(f"\n[2/3] Escalando Auto Scaling Group '{asg_name}' a capacidad={target_capacity}...")
@@ -184,9 +212,12 @@ def main():
     )
     parser.add_argument(
         "--mode",
-        choices=["failover", "scale-down"],
+        choices=["failover", "scale-down", "enable-backups"],
         default="failover",
-        help="Modo de operación: 'failover' (promueve RDS y escala ASG a 2) o 'scale-down' (regresa ASG a 0)",
+        help=(
+            "Modo de operación: 'failover' (promueve RDS y escala ASG a 2), 'scale-down' (regresa ASG a 0) "
+            "o 'enable-backups' (activa backups en la base promovida; correr tras medir el RTO, antes del failback)"
+        ),
     )
 
     args = parser.parse_args()
@@ -201,6 +232,9 @@ def main():
 
     rds_client = boto3.client("rds", region_name=args.region)
     asg_client = boto3.client("autoscaling", region_name=args.region)
+
+    if args.mode == "enable-backups":
+        sys.exit(0 if enable_rds_backups(rds_client, args.rds_id) else 1)
 
     try:
         asg_name = args.asg_name or find_asg_by_prefix(asg_client, args.asg_prefix)
@@ -235,6 +269,8 @@ def main():
         print("\n=====================================================================")
         print(f" TIEMPO TOTAL DE RECUPERACIÓN (RTO): {minutes}m {seconds}s (Objetivo SLA: < 15m)")
         print("=====================================================================")
+        print("\n[SIGUIENTE] Antes del failback, active backups en la base promovida:")
+        print(f"   python automation/failover_trigger.py --mode enable-backups --rds-id {args.rds_id}")
         sys.exit(0 if converged else 1)
 
     print("\n[OK] Acciones de Failover disparadas en segundo plano (--no-wait).")

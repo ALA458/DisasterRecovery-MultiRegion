@@ -1,0 +1,19 @@
+﻿# 21_rds_replica_lag
+# Fecha: 2026-11-18T18:12:23.9257775-05:00
+# Comando:
+$end = (Get-Date).ToUniversalTime(); $start = $end.AddMinutes(-30)
+  aws cloudwatch get-metric-statistics --region $R2 --namespace AWS/RDS --metric-name ReplicaLag --dimensions Name=DBInstanceIdentifier,Value=dr-architecture-secondary-mysql --start-time $start.ToString("s") --end-time $end.ToString("s") --period 300 --statistics Maximum --query "sort_by(Datapoints,&Timestamp)[].{Hora:Timestamp,LagMaxSegundos:Maximum}" --output table
+
+# Resultado:
+-------------------------------------------------
+|              GetMetricStatistics              |
++----------------------------+------------------+
+|            Hora            | LagMaxSegundos   |
++----------------------------+------------------+
+|  2026-11-18T17:47:00-05:00 |  -1.0            |
+|  2026-11-18T17:52:00-05:00 |  0.0             |
+|  2026-11-18T17:57:00-05:00 |  0.0             |
+|  2026-11-18T18:02:00-05:00 |  0.0             |
+|  2026-11-18T18:07:00-05:00 |  0.0             |
++----------------------------+------------------+
+

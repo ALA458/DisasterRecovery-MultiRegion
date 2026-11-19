@@ -5,11 +5,14 @@ on:
     branches: [ "main", "region2" ]
   pull_request:
     branches: [ "main" ]
+  # El despliegue (apply) solo corre al lanzarlo a mano: Actions -> este workflow -> Run workflow
+  workflow_dispatch:
 
 env:
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   AWS_REGION: "us-east-1"
+  TF_VAR_db_password: ${{ secrets.DB_PASSWORD }}
   TERRAFORM_VERSION: "1.10.5"
 
 jobs:
@@ -49,7 +52,7 @@ jobs:
   terraform-primary:
     name: 'Terraform Plan & Apply - Primary (us-east-1)'
     needs: [validate]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -79,7 +82,7 @@ jobs:
   terraform-secondary:
     name: 'Terraform Plan & Apply - Secondary Warm Standby (us-west-2)'
     needs: [terraform-primary]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -109,7 +112,7 @@ jobs:
   terraform-global:
     name: 'Terraform Plan & Apply - Global (Route 53 & CloudFront)'
     needs: [terraform-secondary]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     defaults:
       run:

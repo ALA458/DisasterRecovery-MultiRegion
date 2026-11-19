@@ -77,10 +77,14 @@ variable "db_user" {
   default     = "admin"
 }
 
-variable "db_pass" {
-  description = "Contraseña de la base de datos MySQL"
+variable "db_pass_ssm_parameter" {
+  description = "Nombre del parámetro SecureString de SSM con la contraseña de MySQL (las EC2 lo leen al arrancar)"
   type        = string
-  sensitive   = true
+}
+
+variable "app_image" {
+  description = "URI completa de la imagen de la API en ECR de la región (ej. 123456789012.dkr.ecr.us-east-1.amazonaws.com/dr-api:latest)"
+  type        = string
 }
 
 variable "db_name" {
@@ -102,12 +106,6 @@ variable "s3_bucket" {
 variable "aws_region" {
   description = "Región de AWS de despliegue"
   type        = string
-}
-
-variable "git_branch" {
-  description = "Rama del repositorio Git a clonar en el arranque de las instancias EC2"
-  type        = string
-  default     = "main"
 }
 
 variable "tags" {

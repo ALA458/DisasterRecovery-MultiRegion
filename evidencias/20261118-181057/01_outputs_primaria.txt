@@ -1,0 +1,20 @@
+﻿# 01_outputs_primaria
+# Fecha: 2026-11-18T18:11:23.3632330-05:00
+# Comando:
+terraform "-chdir=$tfP" output
+
+# Resultado:
+alb_arn = "arn:aws:elasticloadbalancing:us-east-1:559050245919:loadbalancer/app/dr-architecture-primary-alb/d54e31fa65cec199"
+alb_dns_name = "dr-architecture-primary-alb-2125354464.us-east-1.elb.amazonaws.com"
+alb_zone_id = "Z35SXDOTRQ7X7K"
+asg_name = "dr-architecture-primary-asg-2026111822115485970000000a"
+dynamodb_table_arn = "arn:aws:dynamodb:us-east-1:559050245919:table/user_sessions"
+dynamodb_table_name = "user_sessions"
+ecr_repository_url = "559050245919.dkr.ecr.us-east-1.amazonaws.com/dr-api"
+rds_arn = "arn:aws:rds:us-east-1:559050245919:db:dr-architecture-primary-mysql"
+rds_endpoint = "dr-architecture-primary-mysql.cqb02gwcu9f9.us-east-1.rds.amazonaws.com:3306"
+rds_instance_id = "db-YC257P3WCHXYHKAJ6HQ4B2HKBI"
+s3_bucket_arn = "arn:aws:s3:::dr-invoices-utb-01bcb738"
+s3_bucket_name = "dr-invoices-utb-01bcb738"
+vpc_id = "vpc-0fe57085627a5c8a5"
+
