@@ -16,3 +16,6 @@ __pycache__/
 *.py[cod]
 *.db
 .env
+
+# Corridas de prueba inválidas (se conservan solo localmente)
+evidencias/_descartadas/
