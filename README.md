@@ -1,4 +1,4 @@
-# Estrategia de Disaster Recovery Multi-Región en AWS (Warm Standby)
+# Disaster Recovery Multi-Región en AWS (Warm Standby)
 
 Diseño e implementación de una arquitectura de alta disponibilidad y recuperación ante desastres multi-región en **Amazon Web Services (AWS)** bajo el modelo **Warm Standby**, orientada a sistemas transaccionales con objetivos estrictos de continuidad operativa.
 
@@ -92,6 +92,7 @@ flowchart LR
 ## Estructura del Repositorio
 
 ```text
+DisasterRecovery-MultiRegion/
 ├── .github/
 │   └── workflows/
 │       └── terraform.yml                 # CI/CD: fmt check, init, validate, plan (PR) y apply (main)
@@ -158,6 +159,34 @@ curl -s http://localhost:8000/transactions/latest?limit=5
 
 3. Detener el entorno local cuando finalicen las pruebas (`-v` limpia también el volumen de MySQL):
 
+El sistema incluye una suite de pruebas con **Locust** ([locust.io](https://locust.io/)) para validar el comportamiento bajo estrés concurrente:
+
+* **[tests/locustfile.py](tests/locustfile.py):** Modela usuarios virtuales que generan tráfico ponderado contra la API, auditando en cada respuesta la región que atendió la petición.
+* **[tests/simulate_dr_end_to_end.py](tests/simulate_dr_end_to_end.py):**
+  1. Inicia un Gateway Global multi-región con `us-east-1` activo y `us-west-2` en Warm Standby.
+  2. Lanza Locust con 25 usuarios concurrentes.
+  3. En $t = +7\text{s}$, inyecta la caída de `us-east-1` (`HTTP 503`).
+  4. Dispara automáticamente `failover_trigger.py`, promueve RDS y escala el ASG secundario a 2 instancias.
+  5. Conmuta el tráfico a `us-west-2` y exporta el reporte gráfico interactivo a [`docs/locust_dr_report.html`](docs/locust_dr_report.html).
+
+---
+
+## 9. Guía de Ejecución y Despliegue
+
+### 9.1 Simulación End-to-End con Locust
+```bash
+pip install -r tests/requirements.txt
+python tests/simulate_dr_end_to_end.py
+```
+*Genera el reporte HTML interactivo en [`docs/locust_dr_report.html`](docs/locust_dr_report.html).*
+
+### 9.2 Interfaz Gráfica Web de Locust
+```bash
+locust -f tests/locustfile.py --host http://localhost:8000
+```
+*Abrir `http://localhost:8089` para lanzar usuarios y ver las gráficas en tiempo real.*
+
+### 9.3 Entorno Local con Docker Compose
 ```bash
 docker compose down -v
 ```
