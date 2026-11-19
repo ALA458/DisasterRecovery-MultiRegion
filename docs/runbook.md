@@ -1,6 +1,6 @@
 # Runbook Operativo: Disaster Recovery Multi-Región (Failover y Failback)
 
-> **Estado del documento:** Borrador estructural (Fase 1). Los comandos de automatización definitiva (`automation/failover_trigger.py`), ARNs de Route 53/SNS y métricas calibradas de RTO/RPO se completarán tras la ejecución de las Fases 3 y 4.
+> **Estado del documento:** Runbook operativo listo. Contiene los procedimientos de failover y failback y el script de automatización; las métricas reales de RTO/RPO deben registrarse al ejecutar el simulacro en AWS.
 
 ---
 
@@ -79,4 +79,4 @@ Antes de validar o simular una contingencia, confirmar:
 
 | Fecha / Simulacro | Escenario Inyectado (AWS FIS) | `T_fallo` (UTC) | `T_recuperacion` (UTC) | RTO Medido | Última Tx Pre-Fallo | RPO Medido | Cumple SLA (`<15m / <5m`) |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| *Pendiente Fase 4* | *Ej. Caída ALB / Writer us-east-1* | — | — | — | — | — | — |
+| *Por completar durante el simulacro AWS* | *Ej. Caída ALB / Writer us-east-1* | — | — | — | — | — | — |

@@ -1,6 +1,6 @@
 # Especificación y Justificación de Arquitectura
 
-**Estado del documento:** Vigente para Fase 1 (diseño global validado; región primaria implementada en Terraform).  
+**Estado del documento:** Vigente y listo para despliegue; la infraestructura primaria, secundaria y global está implementada como código.
 **Estrategia:** Disaster Recovery Multi-Región bajo modelo **Warm Standby**.  
 **Objetivos de Nivel de Servicio (SLA):** `RTO < 15 minutos` | `RPO < 5 minutos`.
 
@@ -39,7 +39,7 @@ El modelo adoptado desacopla la **capa sin estado (stateless)** de la **capa con
 
 ## 3. Arquitectura General Multi-Región
 
-El siguiente diagrama representa la topología completa diseñada para el sistema (indicando los componentes desplegados en Fase 1 y los proyectados para Fases 2 y 3):
+El siguiente diagrama representa la topología completa implementada: región primaria, Warm Standby secundario y servicios globales de DNS/distribución.
 
 ```mermaid
 flowchart TB
@@ -57,7 +57,7 @@ flowchart TB
         ASG1 --> S3_1["S3 Source Bucket (Versionado + AES256)"]
     end
 
-    subgraph R2 ["Region Secundaria: us-west-2 (VPC 10.1.0.0/16) - Planificada Fase 2"]
+    subgraph R2 ["Region Secundaria: us-west-2 (VPC 10.1.0.0/16) - Warm Standby"]
         direction TB
         ALB2 --> ASG2["EC2 Auto Scaling Group (desired=0 en Standby / 2-4 en Failover)"]
         ASG2 --> RDS2["RDS Read Replica (Asincrona -> Promovible a Writer)"]
@@ -162,4 +162,4 @@ sequenceDiagram
 | **ADR-02** | **Inclusión de `cryptography>=42.0.0` y `pool_pre_ping=True` en FastAPI** | MySQL 8.0 en AWS RDS utiliza por defecto el plugin de autenticación `caching_sha2_password` (que exige `cryptography` en PyMySQL). `pool_pre_ping=True` detecta conexiones rotas tras un failover de RDS antes de ejecutar consultas. |
 | **ADR-03** | **Propiedad `ignore_changes = [desired_capacity]` en el ASG** | Evita que ejecuciones posteriores de `terraform apply` reviertan a `0` las instancias escaladas dinámicamente por `failover_trigger.py` o políticas de autoescalado durante una contingencia. |
 | **ADR-04** | **Backend remoto S3 con `use_lockfile = true` (Terraform `>= 1.10.0`)** | Elimina la dependencia de tablas DynamoDB externas exclusivamente para bloqueo de estado de Terraform, simplificando el bootstrap del estado remoto y aislando `primary`, `secondary` y `global`. |
-| **ADR-05** | **Migración planificada de secretos a SSM Parameter Store (Fase 3)** | En Fase 1 la cadena de conexión se inyecta mediante User Data en el Launch Template; en Fase 3 las instancias obtendrán credenciales dinámicamente desde AWS SSM Parameter Store para evitar exposición en metadatos del Launch Template. |
+| **ADR-05** | **Credenciales gestionadas con AWS SSM Parameter Store** | Las instancias secundarias obtienen la contraseña RDS desde un parámetro `SecureString`; la configuración primaria conserva la variable requerida por su entorno Terraform. |

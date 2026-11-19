@@ -1,6 +1,6 @@
 # Estrategia Multi-Región y Capa de Persistencia
 
-**Estado del documento:** Especificación de regiones y motores de persistencia (Fase 1 implementada en `us-east-1`; replicación hacia `us-west-2` diseñada para Fase 2).
+**Estado del documento:** Implementación completa de regiones y motores de persistencia; lista para despliegue y validación con `tests/test_replication_fase2.py`.
 
 ---
 
@@ -11,7 +11,7 @@ La arquitectura opera sobre un par de regiones geográficamente distantes dentro
 | Rol | Región AWS | Ubicación | Bloque CIDR VPC | Estado Actual | Justificación |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Primaria (Active)** | `us-east-1` | N. Virginia | `10.0.0.0/16` | **Implementada (Fase 1)** | Región de referencia con mayor disponibilidad de servicios, menor latencia hacia planos de control globales (IAM, Route 53, CloudFront) y costo óptimo para instancias `t3.micro` y `db.t3.micro`. |
-| **Secundaria (Warm Standby)** | `us-west-2` | Oregón | `10.1.0.0/16` | **Planificada (Fase 2)** | Separación transcontinental respecto a la costa este (aprox. 3,800 km), eliminando correlación ante desastres físicos o fallos regionales masivos de la costa este. |
+| **Secundaria (Warm Standby)** | `us-west-2` | Oregón | `10.1.0.0/16` | **Implementada** | Separación transcontinental respecto a la costa este (aprox. 3,800 km), eliminando correlación ante desastres físicos o fallos regionales masivos de la costa este. |
 
 ### Diseño de Direccionamiento IP Sin Solapamiento
 

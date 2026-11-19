@@ -17,15 +17,15 @@ El código IaC en `terraform/` se divide en **módulos reutilizables** (para des
 | `storage_s3` | `aws_s3_bucket`, `versioning`, `server_side_encryption_configuration` (`AES256`), `public_access_block` | `bucket_name`, `enable_versioning`, `enable_force_destroy` | `bucket_id`, `bucket_arn`, `bucket_name` | **Implementado** |
 | `database_rds` | `aws_db_subnet_group`, `aws_security_group` (3306 desde EC2), `aws_db_instance` (Writer Multi-AZ o Read Replica) | `instance_class`, `multi_az`, `backup_retention_period`, `is_read_replica`, `replicate_source_db` | `db_instance_id`, `db_instance_arn`, `db_endpoint`, `db_address`, `db_port` | **Implementado** |
 | `compute_alb_asg` | Security Groups (`alb`, `ec2`), ALB, Target Group (`/health` cada 10s), Listener 80, IAM Role/Profile, Launch Template (AL2023 + Docker), ASG | `min_size`, `max_size`, `desired_capacity`, `app_port`, `db_host`, `dynamo_table`, `s3_bucket` | `alb_dns_name`, `alb_arn`, `alb_zone_id`, `target_group_arn`, `asg_name`, `ec2_security_group_id` | **Implementado** |
-| `route53_failover` | Health Checks Route 53, registros DNS con política Failover (`PRIMARY` / `SECONDARY`), alertas SNS | — | — | **Pendiente (Fase 3)** |
+| `route53_failover` | Health Checks Route 53, registros DNS con política Failover (`PRIMARY` / `SECONDARY`), alertas SNS | — | — | **Implementado** |
 
 ### 1.2. Entornos Desplegables (`terraform/environments/`)
 
 | Entorno | Ruta | Propósito | Estado |
 | :--- | :--- | :--- | :--- |
 | **Primario (`us-east-1`)** | `terraform/environments/primary_us_east_1/` | Despliega `vpc`, `storage_s3`, `aws_dynamodb_table.user_sessions`, `database_rds` y `compute_alb_asg` (**40 recursos planificados**). | **Codificado y validado** |
-| **Secundario (`us-west-2`)** | `terraform/environments/secondary_us_west_2/` | Despliegue espejo con `vpc_cidr = "10.1.0.0/16"`, `desired_capacity = 0`, `is_read_replica = true`, S3 CRR y réplica DynamoDB. | **Backend listo; pendiente Fase 2** |
-| **Global** | `terraform/environments/global/` | CloudFront, Route 53 Failover Routing, Health Checks globales y tópicos SNS. | **Backend listo; pendiente Fase 3** |
+| **Secundario (`us-west-2`)** | `terraform/environments/secondary_us_west_2/` | Despliegue espejo con `vpc_cidr = "10.1.0.0/16"`, `desired_capacity = 0`, `is_read_replica = true`, S3 CRR y réplica DynamoDB. | **Implementado y listo para desplegar** |
+| **Global** | `terraform/environments/global/` | CloudFront, Route 53 Failover Routing, Health Checks globales y tópicos SNS. | **Implementado y listo para desplegar** |
 
 ---
 
@@ -67,7 +67,7 @@ Durante la revisión técnica del código de Fase 1 se identifican controles ya 
 
 | Aspecto | Implementación Actual (Fase 1) | Acción de Endurecimiento (Fases 2–4 / Producción) |
 | :--- | :--- | :--- |
-| **Credenciales RDS** | `var.db_password` tiene valor por defecto en `variables.tf` y se inyecta en User Data. | Sobrescribir mediante `TF_VAR_db_password` en CI/CD y migrar lectura a **AWS SSM Parameter Store** (`SecureString`) en Fase 3. |
+| **Credenciales RDS** | `var.db_password` tiene valor por defecto en `variables.tf` y existe un parámetro `SecureString` en la región secundaria. | Sobrescribir mediante `TF_VAR_db_password` en CI/CD y proteger el estado Terraform según las políticas de producción. |
 | **Permisos IAM EC2** | `app_permissions` otorga acciones acotadas de DynamoDB/S3 con `Resource = "*"`. | Restringir `Resource` al ARN exacto de la tabla `user_sessions` y los buckets S3 origen/réplica. |
 | **Tráfico HTTP/TLS** | Listener del ALB en puerto `80` (`HTTP`). | Incorporar **AWS CloudFront** con TLS en borde y/o certificado ACM en ALB para tráfico HTTPS extremo a extremo. |
 | **Protección contra borrado** | `deletion_protection = false`, `skip_final_snapshot = true`, `enable_force_destroy = true`. | Configurado intencionalmente para permitir `terraform destroy` limpio en laboratorio académico; cambiar a `true`/`false` según corresponda en producción. |

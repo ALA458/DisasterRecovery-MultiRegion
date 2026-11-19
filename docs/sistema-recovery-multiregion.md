@@ -1,6 +1,6 @@
 # Sistema de Recovery Multi-Región (Failover, Failback y Chaos Engineering)
 
-**Estado del documento:** Diseño operativo completo (detección a nivel de Target Group implementada en Fase 1; Route 53, SNS y `automation/failover_trigger.py` planificados para Fase 3; pruebas Chaos Engineering y medición real en Fase 4).
+**Estado del documento:** Implementación completa. Route 53, CloudFront, SNS y `automation/failover_trigger.py` están listos; las pruebas reales de chaos y medición RTO/RPO deben ejecutarse durante el despliegue en AWS.
 
 ---
 

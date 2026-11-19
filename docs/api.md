@@ -27,7 +27,7 @@ En AWS, estas variables son inyectadas por el script de *User Data* del Launch T
 | `DB_HOST` | `localhost` | `db` | `module.database_rds.db_address` |
 | `DB_PORT` | `3306` | `3306` | `module.database_rds.db_port` |
 | `DB_USER` | `admin` | `admin` | `var.db_username` |
-| `DB_PASS` | `password` | `password` | `var.db_password` (migración a SSM planificada en Fase 3) |
+| `DB_PASS` | `password` | `password` | `var.db_password` o parámetro SSM `SecureString` en el entorno secundario |
 | `DB_NAME` | `transactions_db` | `transactions_db` | `transactions_db` |
 | `DYNAMO_TABLE` | `user_sessions` | `user_sessions` | `aws_dynamodb_table.user_sessions.name` |
 | `S3_BUCKET` | `dr-invoice-bucket` | `dr-invoice-bucket` | `module.storage_s3.bucket_name` |

@@ -4,7 +4,8 @@
 **Facultad de Ingeniería — Programa de Ingeniería de Sistemas**  
 **Asignatura:** Infraestructura como Código & DevOps  
 **Docente:** Rafael Enrique Monterroza Barrios  
-**Fecha de corte:** Octubre de 2026  
+**Fecha de corte:** Noviembre de 2026
+**Estado general:** IMPLEMENTACIÓN COMPLETA — lista para despliegue y validación final en AWS
 
 ---
 
@@ -37,10 +38,10 @@
 
 ```
 [FASE 0] Preparación & API:      ████████████████████ 100% (Completada y Probada)
-[FASE 1] Región Primaria (IaC):   ████████████████████ 100% (Codificada y Validada - Lista para Apply)
-[FASE 2] Warm Standby & Replica:  ░░░░░░░░░░░░░░░░░░░░   0% (Siguiente Sprint)
-[FASE 3] Failover DNS & Boto3:    ░░░░░░░░░░░░░░░░░░░░   0% (Diseño listo)
-[FASE 4] Chaos, RTO/RPO & Runbook:░░░░░░░░░░░░░░░░░░░░   0% (Diseño listo)
+[FASE 1] Región Primaria (IaC):   ████████████████████ 100% (Codificada y Validada)
+[FASE 2] Warm Standby & Replica:  ████████████████████ 100% (Implementada como código)
+[FASE 3] Failover DNS & Boto3:    ████████████████████ 100% (Implementada como código)
+[FASE 4] Chaos, RTO/RPO & Runbook:████████████████████ 100% (Simulación y Runbook listos)
 ```
 
 ---
@@ -121,25 +122,18 @@ Se desarrollaron módulos reutilizables bajo estándares de producción en `terr
   ```
 * **Resultado esperado:** Los 6 chequeos en estado `[OK]`, certificando el cierre formal de la Fase 1.
 
-### Paso 3: Inicio de la Fase 2 (Estrategia Warm Standby y Replicación Cruzada)
-* **Despliegue Espejo en `us-west-2`:**
-  * Reutilizar `modules/vpc` con CIDR `10.1.0.0/16`.
-  * Desplegar `modules/compute_alb_asg` con **`desired_capacity = 0`** (cumplimiento del modelo Warm Standby a mínimo costo).
-* **Sincronización Cross-Region:**
-  * Configurar la regla **S3 Cross-Region Replication (CRR)** con rol de IAM para replicar objetos desde el bucket origen en `us-east-1` hacia el bucket réplica en `us-west-2`.
-  * Configurar la **RDS Read Replica asíncrona** en `us-west-2` apuntando al ARN del clúster primario.
-  * Habilitar la réplica de **DynamoDB Global Tables** en `us-west-2` para topología activa-activa.
-* **Medición preliminar de latencia:** Escribir un script para calcular el retraso de replicación de datos entre Virginia y Oregón.
+### Paso 3: Fase 2 completada (Warm Standby y Replicación Cruzada)
+* El entorno secundario de `us-west-2` ya contiene VPC, cómputo en `desired_capacity = 0`, RDS Read Replica, réplica S3 y DynamoDB Global Tables.
+* Existe la suite `tests/test_replication_fase2.py` para verificar RDS, DynamoDB y S3 después del despliegue.
 
-### Paso 4: Fase 3 (Failover DNS y Script de Contingencia Boto3)
-* Configurar Route 53 con política de enrutamiento Failover y Health Check HTTP cada 10 segundos sobre el ALB primario.
-* Desarrollar `automation/failover_trigger.py` con Boto3 para promover la Read Replica de RDS a maestro y escalar el ASG secundario de 0 a 2 instancias.
-* Integrar canal de notificaciones en AWS SNS.
+### Paso 4: Fase 3 completada (Failover DNS y Automatización Boto3)
+* Route 53, CloudFront, Health Checks y notificaciones SNS están implementados en Terraform.
+* `automation/failover_trigger.py` promueve RDS, escala el ASG secundario y monitorea convergencia y RTO.
 
-### Paso 5: Fase 4 (Chaos Engineering, Medición Científica de RTO/RPO y Runbook)
-* Simular caídas inducidas del escritor RDS y del ALB primario.
-* Medir científicamente mediante generador de carga que $\text{RTO} < 15\text{ min}$ y $\text{RPO} < 5\text{ min}$.
-* Formalizar el manual operativo en `docs/runbook.md`.
+### Paso 5: Fase 4 lista para ejecutar (Chaos Engineering, RTO/RPO y Runbook)
+* `tests/simulate_dr_end_to_end.py` ejecuta el ciclo completo de carga, degradación, failover y reporte.
+* `docs/runbook.md` contiene los procedimientos operativos finales.
+* La validación científica real debe registrarse ejecutando el simulacro en la cuenta AWS de la sustentación.
 
 ---
 

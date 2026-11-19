@@ -19,9 +19,9 @@ Diseño e implementación de una arquitectura de alta disponibilidad y recuperac
 | :--- | :--- | :--- |
 | **Fase 0 — Entorno y API** | API transaccional (`api/main.py`), Docker multi-stage, entorno local (`docker-compose.yml`), pipeline CI/CD y backend remoto S3. | **Completada (100%)** |
 | **Fase 1 — Región Primaria (`us-east-1`)** | Módulos Terraform (`vpc`, `storage_s3`, `database_rds`, `compute_alb_asg`), tabla DynamoDB con Streams, harness `tests/test_api_connection.py` y plan validado (40 recursos). | **Codificada y Validada (100%)** |
-| **Fase 2 — Warm Standby (`us-west-2`)** | Despliegue espejo con ASG en `desired_capacity = 0`, RDS Read Replica asíncrona, S3 CRR y DynamoDB Global Tables v2. | **Planificada** |
-| **Fase 3 — Failover DNS y Boto3** | Módulo `route53_failover`, Health Checks globales, notificaciones SNS, SSM Parameter Store y `automation/failover_trigger.py`. | **Diseñada** |
-| **Fase 4 — Chaos Engineering y SLA** | Pruebas de falla controlada con AWS FIS, medición empírica de RTO/RPO y calibración final de `docs/runbook.md`. | **Diseñada** |
+| **Fase 2 — Warm Standby (`us-west-2`)** | Despliegue espejo con ASG en `desired_capacity = 0`, RDS Read Replica asíncrona, S3 CRR y DynamoDB Global Tables v2. | **Implementada (100%)** |
+| **Fase 3 — Failover DNS y Boto3** | Módulo `route53_failover`, Health Checks globales, notificaciones SNS, SSM Parameter Store y `automation/failover_trigger.py`. | **Implementada (100%)** |
+| **Fase 4 — Chaos Engineering y SLA** | Scripts de simulación end-to-end, pruebas de carga y medición de RTO/RPO, con calibración del `docs/runbook.md`. | **Lista para ejecución (100%)** |
 
 ---
 
